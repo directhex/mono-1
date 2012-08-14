@@ -45,7 +45,7 @@ using System.IO;
 using System.Net.Configuration;
 using System.Text;
 using System.Timers;
-#if !MOONLIGHT && SCE_DISABLED
+#if !MOONLIGHT
 using System.Net.NetworkInformation;
 #endif
 

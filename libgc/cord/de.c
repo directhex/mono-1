@@ -590,7 +590,6 @@ done:
     nl();
     echo();
     endwin();
-    printf("===============exit=======================[%d]\n", __LINE__);
     exit(0);
 usage:
     fprintf(stderr, "Usage: %s file\n", argv[0]);
@@ -598,7 +597,6 @@ usage:
     fprintf(stderr, "Undo: ^U    Write to <file>.new: ^W");
     fprintf(stderr, "Quit:^D  Repeat count: ^R[n]\n");
     fprintf(stderr, "Top: ^T   Locate (search, find): ^L text ^L\n");
-    printf("===============exit=======================[%d]\n", __LINE__);
     exit(1);
 }
 

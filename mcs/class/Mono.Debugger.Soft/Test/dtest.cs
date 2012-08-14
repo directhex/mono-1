@@ -8,7 +8,6 @@ using Mono.Cecil.Cil;
 using Mono.Debugger.Soft;
 using Diag = System.Diagnostics;
 using System.Linq;
-using System.Net.Sockets;
 
 using NUnit.Framework;
 
@@ -43,41 +42,16 @@ public class DebuggerTests
 		return es [0];
 	}
 
-	Diag.Process vita_process;
-
 	void Start (string[] args) {
-		if (vita_process != null) {
-			vita_process.WaitForExit ();
-			vita_process = null;
-		}
-
 		if (!listening) {
-			if (Environment.GetEnvironmentVariable ("DBG_VITA") != null) {
-				/* Run the tests on the device using our test runner */
-				IPAddress[] ips = Dns.GetHostAddresses (Dns.GetHostName ());
+			var pi = new Diag.ProcessStartInfo ();
 
-				Socket socket = new Socket (AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-				socket.Bind (new IPEndPoint (ips [0], 0));
-				socket.Listen (1000);
-				IPEndPoint ep = (IPEndPoint) socket.LocalEndPoint;
-
-				var pi = new Diag.ProcessStartInfo ();
-				pi.FileName = "psp2run.exe";
-				pi.Arguments = "/c:all /elf appfolder/TestRunnerD.self --debug --debugger-agent=transport=vita-socket,address=" + ep.Address + ":" + ep.Port + (agent_args != null ? agent_args : "") + " " + String.Join (" ", args);
-				pi.UseShellExecute = false;
-
-				vita_process = Diag.Process.Start (pi);
-				vm = VirtualMachineManager.LaunchInternal (vita_process, pi, socket);
-			} else {
-				var pi = new Diag.ProcessStartInfo ();
-
-				if (runtime != null)
-					pi.FileName = runtime;
-				else
-					pi.FileName = "mono";
-				pi.Arguments = String.Join (" ", args);
-				vm = VirtualMachineManager.Launch (pi, new LaunchOptions { AgentArgs = agent_args });
-			}
+			if (runtime != null)
+				pi.FileName = runtime;
+			else
+				pi.FileName = "mono";
+			pi.Arguments = String.Join (" ", args);
+			vm = VirtualMachineManager.Launch (pi, new LaunchOptions { AgentArgs = agent_args });
 		} else {
 			Console.WriteLine ("Listening...");
 			vm = VirtualMachineManager.Listen (new IPEndPoint (IPAddress.Any, 10000));
@@ -194,18 +168,6 @@ public class DebuggerTests
 
 			vm.Resume ();
 		}
-
-		try {
-			vm.Dispose ();
-		} catch {
-			/*
-			 * This can happen since we are sending a DISPOSE command and the vm can shut
-			 * down after we received the VMDeathEvent.
-			 */
-		}
-
-		if (vita_process != null)
-			vita_process.WaitForExit ();
 	}
 
 	[Test]
@@ -1131,6 +1093,7 @@ public class DebuggerTests
 	}
 
 	[Test]
+	[Category ("only5")]
 	public void Type_GetValue () {
 		Event e = run_until ("o1");
 		StackFrame frame = e.Thread.GetFrames () [0];
@@ -2125,6 +2088,7 @@ public class DebuggerTests
 	}
 
 	[Test]
+	[Category ("only")]
 	public void Frame_SetValue_Registers () {
 		Event e = run_until ("locals6_1");
 

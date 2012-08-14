@@ -80,7 +80,7 @@
  * Temporary hack to force the use of the maching corlib due to the path changes in
  * 15d8d54d796dd5c67bbe67a926fe374cd5eb9711.
  */
-#define MONO_CORLIB_VERSION 1024
+#define MONO_CORLIB_VERSION 97
 //#define MONO_CORLIB_VERSION 97
 
 typedef struct

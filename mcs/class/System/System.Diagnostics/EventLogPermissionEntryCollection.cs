@@ -30,7 +30,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.Collections;
 using System.Security.Permissions;
 
@@ -125,4 +124,3 @@ namespace System.Diagnostics {
 	}
 }
 
-#endif

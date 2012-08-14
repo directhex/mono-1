@@ -28,6 +28,7 @@
 //
 
 using System;
+using System.CodeDom;
 using System.ComponentModel;
 
 namespace System.ComponentModel.Design.Serialization

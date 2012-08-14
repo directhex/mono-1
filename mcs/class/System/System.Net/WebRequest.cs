@@ -256,9 +256,6 @@ namespace System.Net
 			
 			if (pe.BypassOnLocal != ProxyElement.BypassOnLocalValues.Unspecified)
 				p.BypassProxyOnLocal = (pe.BypassOnLocal == ProxyElement.BypassOnLocalValues.True);
-				
-			foreach(BypassElement elem in sec.BypassList)
-				p.BypassArrayList.Add(elem.Address);
 			
 			return p;
 #else
@@ -348,19 +345,7 @@ namespace System.Net
 							uri = builder.Uri;
 						}
 					}
-					
-					string[] bypassList=null;
-				        string bypass = Environment.GetEnvironmentVariable ("no_proxy");
-				
-				        if (bypass == null)
-				        	bypass = Environment.GetEnvironmentVariable ("NO_PROXY");
-				
-				        if (bypass != null) {
-				                bypass = bypass.Remove (bypass.IndexOf("*.local"), 7);
-				                bypassList = bypass.Split (new char[]{','}, StringSplitOptions.RemoveEmptyEntries);
-				            }
-				
-				        return new WebProxy (uri, false, bypassList);
+					return new WebProxy (uri);
 				} catch (UriFormatException) { }
 			}
 			

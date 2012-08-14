@@ -60,8 +60,7 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyDelaySign (true)]
 #if NET_2_1
-	[assembly: InternalsVisibleTo ("System, PublicKey=00240000048000009400000006020000002400005253413100040000110000009133d396ca929938bc68440b541d8888614e7bd475bef719ab4f4b85b1c21fc3ef2b5f32df0de7c769ca90687650da49eebe7adcb71479f1463e10902cb65a1f44fa2e71b3f30e108fe0f6699d179daed5b1a774db1aba104c59118544b47cda724aea8e6899fa760dfe0ba8656515b48ae94fde29fc8f5bd569126c7a9ae6f3")]
-	[assembly: AssemblyKeyFile ("../psm.pub")]
+	[assembly: AssemblyKeyFile ("../silverlight.pub")]
 #else
 	[assembly: AssemblyKeyFile ("../ecma.pub")]
 	[assembly: ComCompatibleVersion (1, 0, 3300, 0)]

@@ -35,7 +35,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
-#if NET_2_1 && SCE_DISABLED
+#if NET_2_1
 using System.IO.IsolatedStorage;
 #endif
 

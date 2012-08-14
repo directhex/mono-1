@@ -1,13 +1,11 @@
 //
 // System.Threading.Timeout.cs
 //
-// Authors:
+// Author:
 //   Dick Porter (dick@ximian.com)
-//   Marek Safar (marek.safar@gmail.com)
 //
 // (C) Ximian, Inc.  http://www.ximian.com
 // Copyright (C) 2004-2005 Novell, Inc (http://www.novell.com)
-// Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -34,12 +32,7 @@ using System.Runtime.InteropServices;
 namespace System.Threading {
 
 	[ComVisible (true)]
-	public static class Timeout
-	{
-		public const int Infinite = -1;
-
-#if NET_4_5
-		public static readonly TimeSpan InfiniteTimeSpan = new TimeSpan (0, 0, 0, 0, -1);
-#endif
+	public static class Timeout {
+		public const int Infinite=-1;
 	}
 }

@@ -1068,7 +1068,7 @@ namespace Mono.Security {
 			if (unixAbsPath) {
 				path = '/' + uriString;
 				host = String.Empty;
-			} else if (host.Length > 0 && host [host.Length - 1] == ':') {
+			} else if (host.Length == 2 && host [1] == ':') {
 				// windows filepath
 				path = host + path;
 				host = String.Empty;

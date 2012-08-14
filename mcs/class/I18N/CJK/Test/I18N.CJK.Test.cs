@@ -17,13 +17,11 @@ namespace MonoTests.I18N.CJK
 	[TestFixture]
 	public class TestCJK
 	{
-		private global::I18N.Common.Manager Manager = global::I18N.Common.Manager.PrimaryManager;
-
 		void AssertEncode (string utf8file, string decfile, int codepage)
 		{
 			string decoded = null;
 			byte [] encoded = null;
-			using (StreamReader sr = new StreamReader (utf8file, 
+			using (StreamReader sr = new StreamReader (utf8file,
 				Encoding.UTF8)) {
 				decoded = sr.ReadToEnd ();
 			}
@@ -31,7 +29,7 @@ namespace MonoTests.I18N.CJK
 				encoded = new byte [fs.Length];
 				fs.Read (encoded, 0, (int) fs.Length);
 			}
-			Encoding enc = Manager.GetEncoding (codepage);
+			Encoding enc = Encoding.GetEncoding (codepage);
 			byte [] actual;
 
 			// simple string case
@@ -63,7 +61,7 @@ namespace MonoTests.I18N.CJK
 				encoded = new byte [fs.Length];
 				fs.Read (encoded, 0, (int) fs.Length);
 			}
-			Encoding enc = Manager.GetEncoding (codepage);
+			Encoding enc = Encoding.GetEncoding (codepage);
 			char [] actual;
 
 			Assert.AreEqual (decoded.Length,
@@ -85,28 +83,9 @@ namespace MonoTests.I18N.CJK
 		}
 
 		[Test]
-		public void CP936_Encode3 ()
-		{
-			AssertEncode("Test/texts/chinese3-utf8.txt", "Test/texts/chinese3-936.txt", 936);
-		}
-
-		[Test]
 		public void CP936_Decode ()
 		{
 			AssertDecode ("Test/texts/chinese-utf8.txt", "Test/texts/chinese-936.txt", 936);
-		}
-
-		[Test]
-		public void Bug_1531()
-		{
-			string str = @"wqk=";
-			byte[] utf8 = Convert.FromBase64String(str);
-			char[] data = Encoding.UTF8.GetChars(utf8);
-
-			var encoding = Manager.GetEncoding("GB2312");
-			var result = encoding.GetBytes(data);
-
-			Assert.AreEqual(new byte[] { 63 }, result);
 		}
 
 		// BIG5
@@ -115,12 +94,6 @@ namespace MonoTests.I18N.CJK
 		public void CP950_Encode ()
 		{
 			AssertEncode ("Test/texts/chinese2-utf8.txt", "Test/texts/chinese2-950.txt", 950);
-		}
-
-		[Test]
-		public void CP950_Encode4 ()
-		{
-			AssertEncode("Test/texts/chinese4-utf8.txt", "Test/texts/chinese4-950.txt", 950);
 		}
 
 		[Test]
@@ -184,12 +157,6 @@ namespace MonoTests.I18N.CJK
 		}
 
 		[Test]
-		public void CP50220_Encode_3 ()
-		{
-			AssertEncode("Test/texts/japanese3-utf8.txt", "Test/texts/japanese3-50220.txt", 50220);
-		}
-
-		[Test]
 		public void CP50220_Decode ()
 		{
 			AssertDecode ("Test/texts/japanese2-utf8.txt", "Test/texts/japanese2-50220.txt", 50220);
@@ -199,12 +166,6 @@ namespace MonoTests.I18N.CJK
 		public void CP50221_Encode ()
 		{
 			AssertEncode ("Test/texts/japanese-utf8.txt", "Test/texts/japanese-50221.txt", 50221);
-		}
-
-		[Test]
-		public void CP50221_Encode_3()
-		{
-			AssertEncode("Test/texts/japanese3-utf8.txt", "Test/texts/japanese3-50221.txt", 50221);
 		}
 
 		[Test]
@@ -234,7 +195,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void CP50220BrokenESC ()
 		{
-			Assert.AreEqual ("\u001B$0", Manager.GetEncoding (50220).GetString (new byte [] {0x1B, 0x24, 0x30}), "#1");
+			Assert.AreEqual ("\u001B$0", Encoding.GetEncoding (50220).GetString (new byte [] {0x1B, 0x24, 0x30}), "#1");
 		}
 
 		[Test]
@@ -274,14 +235,14 @@ namespace MonoTests.I18N.CJK
 
 		void GetBytesAllSingleChars (int enc)
 		{
-			Encoding e = Manager.GetEncoding (enc);
+			Encoding e = Encoding.GetEncoding (enc);
 			for (int i = 0; i < 0x10000; i++)
 				e.GetBytes (new char [] { (char)i });
 		}
 
 		void GetCharsAllBytePairs (int enc)
 		{
-			Encoding e = Manager.GetEncoding (enc);
+			Encoding e = Encoding.GetEncoding (enc);
 			byte [] bytes = new byte [2];
 			for (int i0 = 0; i0 < 0x100; i0++) {
 				bytes [0] = (byte) i0;
@@ -328,7 +289,7 @@ namespace MonoTests.I18N.CJK
 #endif
 		public void Encoder54936Refresh ()
 		{
-			Encoding e = Manager.GetEncoding ("gb18030");
+			Encoding e = Encoding.GetEncoding ("gb18030");
 			Encoder d = e.GetEncoder ();
 			byte [] bytes;
 
@@ -352,14 +313,14 @@ namespace MonoTests.I18N.CJK
 		public void Bug491799 ()
 		{
 			Assert.AreEqual (new byte [] {0xEE, 0xFC},
-					   Manager.GetEncoding (932).GetBytes ("\uFF02"));
+					   Encoding.GetEncoding (932).GetBytes ("\uFF02"));
 		}
 
 #if NET_2_0
 		[Test]
 		public void Decoder932Refresh ()
 		{
-			Encoding e = Manager.GetEncoding (932);
+			Encoding e = Encoding.GetEncoding (932);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -379,7 +340,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder51932Refresh ()
 		{
-			Encoding e = Manager.GetEncoding (51932);
+			Encoding e = Encoding.GetEncoding (51932);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -407,7 +368,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder936Refresh ()
 		{
-			Encoding e = Manager.GetEncoding (936);
+			Encoding e = Encoding.GetEncoding (936);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -430,7 +391,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder949Refresh ()
 		{
-			Encoding e = Manager.GetEncoding (949);
+			Encoding e = Encoding.GetEncoding (949);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -453,7 +414,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder950Refresh ()
 		{
-			Encoding e = Manager.GetEncoding (950);
+			Encoding e = Encoding.GetEncoding (950);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -478,7 +439,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder51932NoRefresh ()
 		{
-			Encoding e = Manager.GetEncoding (51932);
+			Encoding e = Encoding.GetEncoding (51932);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -501,7 +462,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder936NoRefresh ()
 		{
-			Encoding e = Manager.GetEncoding (936);
+			Encoding e = Encoding.GetEncoding (936);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -524,7 +485,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder949NoRefresh ()
 		{
-			Encoding e = Manager.GetEncoding (949);
+			Encoding e = Encoding.GetEncoding (949);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -547,7 +508,7 @@ namespace MonoTests.I18N.CJK
 		[Test]
 		public void Decoder950NoRefresh ()
 		{
-			Encoding e = Manager.GetEncoding (950);
+			Encoding e = Encoding.GetEncoding (950);
 			Decoder d = e.GetDecoder ();
 			char [] chars;
 
@@ -571,7 +532,7 @@ namespace MonoTests.I18N.CJK
 		public void HandleObsoletedESCJ () // bug #398273
 		{
 			byte [] b = new byte [] {0x64, 0x6f, 0x6e, 0x1b, 0x24, 0x42, 0x21, 0x47, 0x1b, 0x28, 0x4a, 0x74};
-			string s = Manager.GetEncoding ("ISO-2022-JP").GetString (b);
+			string s = Encoding.GetEncoding ("ISO-2022-JP").GetString (b);
 			Assert.AreEqual ("don\u2019t", s);
 
 		}

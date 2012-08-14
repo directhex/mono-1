@@ -55,7 +55,7 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyDelaySign (true)]
 #if NET_2_1
-[assembly: AssemblyKeyFile ("../psm.pub")]
+[assembly: AssemblyKeyFile ("../silverlight.pub")]
 #else
 [assembly: AssemblyKeyFile("../winfx.pub")]
 #endif

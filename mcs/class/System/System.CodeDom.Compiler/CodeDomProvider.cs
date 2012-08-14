@@ -29,7 +29,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -313,4 +312,3 @@ namespace System.CodeDom.Compiler {
 		}		
 	}
 }
-#endif

@@ -29,7 +29,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using Microsoft.Win32;
 using System.Collections;
 using System.Collections.Specialized;
@@ -354,4 +353,3 @@ namespace System.Diagnostics
 #endif
 	}
 }
-#endif

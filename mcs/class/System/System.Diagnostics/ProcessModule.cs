@@ -30,7 +30,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System;
 using System.ComponentModel;
 using System.ComponentModel.Design;
@@ -106,4 +105,3 @@ namespace System.Diagnostics
 		}
 	}
 }
-#endif

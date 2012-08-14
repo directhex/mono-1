@@ -30,7 +30,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if SCE_DISABLED
 using System.Runtime.InteropServices;
 
 namespace System.IO.IsolatedStorage {
@@ -57,4 +56,3 @@ namespace System.IO.IsolatedStorage {
 #endif
 	}
 }
-#endif

@@ -55,7 +55,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDelaySign (true)]
 #if NET_2_1
 [assembly: AssemblyInformationalVersion (Consts.FxFileVersion)]
-[assembly: AssemblyKeyFile ("../psm.pub")]
+[assembly: AssemblyKeyFile ("../silverlight.pub")]
 #else
 [assembly: AssemblyInformationalVersion ("3.5.594.0")]
 [assembly: AssemblyKeyFile("../winfx.pub")]

@@ -222,7 +222,6 @@ interp_ex_handler (MonoException *ex) {
 		}
 		/* wait for other threads to also collapse */
 		Sleep(1000);
-    printf("===============exit=======================[%d]\n", __LINE__);
 		exit(1);
 	}
 	context->env_frame->ex = ex;

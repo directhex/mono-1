@@ -27,9 +27,5 @@ using System.Runtime.InteropServices;
 */
 
 [assembly: AssemblyDelaySign (true)]
-#if NET_2_1
-[assembly: AssemblyKeyFile ("../../psm.pub")]
-#else
 [assembly: AssemblyKeyFile ("../../mono.pub")]
-#endif
 

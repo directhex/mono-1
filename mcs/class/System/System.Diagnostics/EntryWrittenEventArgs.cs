@@ -28,7 +28,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -54,4 +53,3 @@ namespace System.Diagnostics {
 	}
 }
 
-#endif

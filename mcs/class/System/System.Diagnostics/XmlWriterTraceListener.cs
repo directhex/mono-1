@@ -151,11 +151,9 @@ namespace System.Diagnostics
 			bool hasRelatedActivity, Guid relatedActivity,
 			int level, bool wrapData, params object [] data)
 		{
-#if !MOBILE
 			Process p = eventCache != null ?
 				Process.GetProcessById (eventCache.ProcessId) :
 				Process.GetCurrentProcess ();
-#endif
 
 			w.WriteStartElement ("E2ETraceEvent", e2e_ns);
 
@@ -190,20 +188,16 @@ namespace System.Diagnostics
 			w.WriteStartElement ("Execution", sys_ns);
 			// FIXME: which should I use here?
 			//w.WriteAttributeString ("ProcessName", p.ProcessName);
-#if !MOBILE
 			w.WriteAttributeString ("ProcessName", p.MainModule.ModuleName);
 			w.WriteAttributeString ("ProcessID", p.Id.ToString ());
-#endif
 			w.WriteAttributeString ("ThreadID", eventCache != null ? eventCache.ThreadId : Thread.CurrentThread.ManagedThreadId.ToString ());
 			w.WriteEndElement ();
 			w.WriteStartElement ("Channel", sys_ns);
 			// FIXME: find out what should be written.
 			w.WriteEndElement ();
-#if !MOBILE
 			w.WriteStartElement ("Computer");
 			w.WriteString (p.MachineName);
 			w.WriteEndElement ();
-#endif
 
 			w.WriteEndElement ();
 

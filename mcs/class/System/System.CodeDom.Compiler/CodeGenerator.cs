@@ -32,7 +32,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.Globalization;
 using System.CodeDom;
 using System.Reflection;
@@ -1299,4 +1298,3 @@ namespace System.CodeDom.Compiler {
 		}
 	}
 }
-#endif

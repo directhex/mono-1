@@ -33,6 +33,10 @@
 #define HAVE_AEABI_READ_TP 1
 #endif
 
+#ifdef ARM_FPU_VFP_HARD
+#define ARM_FPU_VFP 1
+#endif
+
 #ifdef ARM_FPU_FPA
 #define IS_FPA 1
 #else
@@ -620,11 +624,11 @@ mono_arch_cpu_init (void)
 		i8_align = __alignof__ (gint64);
 #endif
 
-#if defined(TARGET_VITA)
+#if defined(ARM_FPU_VFP_HARD)
 	// TODO : use another temp register or save it, s16-31 should be preserved according to ARM ABI
 	vfp_tmp_reg = ARM_VFP_F30;
 	hardfp_abi = TRUE;
-	pss_disable_ftz ();
+	// pss_disable_ftz ();
 #endif
 }
 
@@ -714,6 +718,8 @@ mono_arch_init (void)
 
 #ifdef ARM_FPU_FPA
 	arm_fpu = MONO_ARM_FPU_FPA;
+#elif defined(ARM_FPU_VFP_HARD)
+	arm_fpu = MONO_ARM_FPU_VFP_HARD;
 #elif defined(ARM_FPU_VFP)
 	arm_fpu = MONO_ARM_FPU_VFP;
 #else
@@ -752,7 +758,7 @@ mono_arch_cpu_optimizazions (guint32 *exclude_mask)
 	v5_supported = TRUE;
 	darwin = TRUE;
 	iphone_abi = TRUE;
-#elif defined(TARGET_VITA)
+#elif defined(ARM_FPU_VFP_HARD)
 	v6_supported = TRUE;
 	v7_supported = TRUE;
 	thumb_supported = TRUE;
@@ -2350,6 +2356,7 @@ mono_arch_emit_setret (MonoCompile *cfg, MonoMethod *method, MonoInst *val)
 			}
 			break;
 		case MONO_ARM_FPU_VFP:
+		case MONO_ARM_FPU_VFP_HARD:
 			if (ret->type == MONO_TYPE_R8 || ret->type == MONO_TYPE_R4) {
 				MonoInst *ins;
 

@@ -27,7 +27,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.Runtime.InteropServices;
 using System.Collections;
 
@@ -125,4 +124,3 @@ namespace System.CodeDom
 		}
 	}
 }
-#endif

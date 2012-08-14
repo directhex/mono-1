@@ -28,7 +28,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System;
 
 namespace System.Runtime.InteropServices
@@ -50,4 +49,3 @@ namespace System.Runtime.InteropServices
 		}
 	}
 }
-#endif

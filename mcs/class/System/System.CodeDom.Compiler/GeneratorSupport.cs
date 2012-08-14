@@ -29,7 +29,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 namespace System.CodeDom.Compiler
 {
 	[Flags]
@@ -64,4 +63,3 @@ namespace System.CodeDom.Compiler
 	}
 }
 
-#endif

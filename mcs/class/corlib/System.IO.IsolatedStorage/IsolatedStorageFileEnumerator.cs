@@ -28,7 +28,7 @@
 
 using System.Collections;
 
-#if !MOONLIGHT && SCE_DISABLED
+#if !MOONLIGHT
 
 namespace System.IO.IsolatedStorage {
 

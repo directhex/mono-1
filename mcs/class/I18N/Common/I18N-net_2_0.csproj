@@ -47,7 +47,6 @@
    <Compile Include="Handlers.cs" />
    <Compile Include="Manager.cs" />
    <Compile Include="MonoEncoding.cs" />
-   <Compile Include="MonoSafeEncoding.cs" />
    <Compile Include="Strings.cs" />
 
   </ItemGroup>

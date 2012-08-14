@@ -30,7 +30,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.ComponentModel;
 #if NET_2_0
 using System.Runtime.InteropServices;
@@ -201,4 +200,3 @@ namespace System.Diagnostics
 	}
 }
 
-#endif

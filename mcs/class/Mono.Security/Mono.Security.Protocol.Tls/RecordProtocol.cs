@@ -838,7 +838,7 @@ namespace Mono.Security.Protocol.Tls
 			}
 			catch
 			{
-#if !MOBILE
+#if !MOONLIGHT
 				if (this.context is ServerContext)
 				{
 					this.Context.RecordProtocol.SendAlert(AlertDescription.DecryptionFailed);

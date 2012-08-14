@@ -28,7 +28,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if CONFIGURATION_DEP && !MOBILE
+#if CONFIGURATION_DEP
 using System;
 using System.Collections;
 using System.Collections.Generic;

@@ -334,10 +334,8 @@ namespace System.IO
 		static bool IsRootDirectory (string path)
 		{
 			// Unix
-			if (Path.DirectorySeparatorChar == '/') {
-				if (path == "/" || path == Path.GetPathRoot (path))
-					return true;
-			}
+			if (Path.DirectorySeparatorChar == '/' && path == "/")
+				return true;
 
 			// Windows
 			if (Path.DirectorySeparatorChar == '\\')

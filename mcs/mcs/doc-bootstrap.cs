@@ -7,7 +7,6 @@
 // Dual licensed under the terms of the MIT X11 or GNU GPL
 //
 // Copyright 2004 Novell, Inc.
-// Copyright 2011 Xamarin Inc
 //
 //
 

@@ -54,7 +54,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDelaySign (true)]
 #if NET_2_1
 	// attributes specific to FX 3.5
-	[assembly: AssemblyKeyFile ("../psm.pub")]
+	[assembly: AssemblyKeyFile ("../silverlight.pub")]
 #else
 	// attributes specific to Silverlight 2.0
 	[assembly: AssemblyKeyFile ("../ecma.pub")]

@@ -55,9 +55,7 @@ namespace System {
 		 * of icalls, do not require an increment.
 		 */
 #pragma warning disable 169
-		//private const int mono_corlib_version = 97;
-		// Due to the VITA path changes
-		private const int mono_corlib_version = 1024;
+		private const int mono_corlib_version = 97;
 #pragma warning restore 169
 
 		[ComVisible (true)]

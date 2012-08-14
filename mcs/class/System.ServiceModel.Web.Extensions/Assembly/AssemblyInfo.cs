@@ -55,9 +55,9 @@ using System.Runtime.InteropServices;
 [assembly: CLSCompliant (true)]
 [assembly: AssemblyDelaySign (true)]
 #if NET_2_1
-[assembly: AssemblyKeyFile ("../psm.pub")]
+[assembly: AssemblyKeyFile ("../silverlight.pub")]
 #else
-[assembly: AssemblyKeyFile ("../psm.pub")] // easing InternalVisibleTo use.
+[assembly: AssemblyKeyFile ("../silverlight.pub")] // easing InternalVisibleTo use.
 #endif
 
 [assembly: ComVisible (false)]

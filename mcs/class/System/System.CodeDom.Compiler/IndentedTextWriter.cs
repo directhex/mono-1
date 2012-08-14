@@ -27,7 +27,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOBILE
 using System.IO;
 using System.Security.Permissions;
 using System.Text;
@@ -319,4 +318,3 @@ namespace System.CodeDom.Compiler {
 		}
 	}
 }
-#endif
