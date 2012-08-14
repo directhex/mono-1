@@ -73,8 +73,7 @@ namespace MonoTests.System.Threading.Tasks
 			return Task.Factory.StartNew(() => t.Result + 1);
 		}
 
-		[Test]
-		[Category ("NotWorking")]
+		[Test][Category ("NotWorking")]
 		public void NestedFutureTest ()
 		{
 			ParallelTestHelper.Repeat (delegate {

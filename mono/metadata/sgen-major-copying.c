@@ -274,7 +274,7 @@ major_alloc_degraded (MonoVTable *vtable, size_t size)
 		mono_sgen_register_major_sections_alloced (1);
 	}
 	section->next_data += size;
-	DEBUG (3, fprintf (gc_debug_file, "Allocated (degraded) object %p, vtable: %p (%s), size: %zd in section %p\n", p, vtable, vtable->klass->name, size, section));
+	DEBUG (3, fprintf (gc_debug_file, "Allocated (degraded) object %p, vtable: %p (%s), size: " SGEN_SIZE_T_SPECIFIER " in section %p\n", p, vtable, vtable->klass->name, size, section));
 	*p = vtable;
 	return p;
 }
@@ -359,7 +359,7 @@ major_copy_or_mark_object (void **obj_slot, SgenGrayQueue *queue)
 	if (G_UNLIKELY (objsize > SGEN_MAX_SMALL_OBJ_SIZE || obj_is_from_pinned_alloc (obj))) {
 		if (SGEN_OBJECT_IS_PINNED (obj))
 			return;
-		DEBUG (9, fprintf (gc_debug_file, " (marked LOS/Pinned %p (%s), size: %zd)\n", obj, mono_sgen_safe_name (obj), objsize));
+		DEBUG (9, fprintf (gc_debug_file, " (marked LOS/Pinned %p (%s), size: " SGEN_SIZE_T_SPECIFIER ")\n", obj, mono_sgen_safe_name (obj), objsize));
 		binary_protocol_pin (obj, (gpointer)SGEN_LOAD_VTABLE (obj), mono_sgen_safe_object_get_size ((MonoObject*)obj));
 		SGEN_PIN_OBJECT (obj);
 		GRAY_OBJECT_ENQUEUE (queue, obj);

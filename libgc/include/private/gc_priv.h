@@ -523,7 +523,7 @@ extern GC_warn_proc GC_current_warn_proc;
 # else
 #   if (CPP_WORDSZ == 32) || (defined(HPUX) && defined(HP_PA))
       /* HPUX/PA seems to use 4K pages with the 64 bit ABI */
-#     define CPP_LOG_HBLKSIZE 12
+#		define CPP_LOG_HBLKSIZE 12
 #   else
 #     define CPP_LOG_HBLKSIZE 13
 #   endif

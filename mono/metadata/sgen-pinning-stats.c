@@ -132,9 +132,9 @@ pin_stats_count_object_from_tree (char *obj, size_t size, PinStatAddress *node, 
 }
 
 static gpointer
-lookup_class_entry (SgenHashTable *hash_table, MonoClass *class, gpointer empty_entry)
+lookup_class_entry (SgenHashTable *hash_table, MonoClass *klass, gpointer empty_entry)
 {
-	char *name = g_strdup_printf ("%s.%s", class->name_space, class->name);
+	char *name = g_strdup_printf ("%s.%s", klass->name_space, klass->name);
 	gpointer entry = mono_sgen_hash_table_lookup (hash_table, name);
 
 	if (entry) {
@@ -148,14 +148,14 @@ lookup_class_entry (SgenHashTable *hash_table, MonoClass *class, gpointer empty_
 }
 
 static void
-register_class (MonoClass *class, int pin_types)
+register_class (MonoClass *klass, int pin_types)
 {
 	PinnedClassEntry empty_entry;
 	PinnedClassEntry *entry;
 	int i;
 
 	memset (&empty_entry, 0, sizeof (PinnedClassEntry));
-	entry = lookup_class_entry (&pinned_class_hash_table, class, &empty_entry);
+	entry = (PinnedClassEntry *) lookup_class_entry (&pinned_class_hash_table, klass, &empty_entry);
 
 	for (i = 0; i < PIN_TYPE_MAX; ++i) {
 		if (pin_types & (1 << i))
@@ -172,7 +172,7 @@ mono_sgen_pin_stats_register_object (char *obj, size_t size)
 	if (!do_pin_stats)
 		return;
 
-	list = mono_sgen_alloc_internal_dynamic (sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
+	list = (ObjectList *) mono_sgen_alloc_internal_dynamic (sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
 	pin_stats_count_object_from_tree (obj, size, pin_stat_addresses, &pin_types);
 	list->obj = (MonoObject*)obj;
 	list->next = pinned_objects;
@@ -189,7 +189,7 @@ mono_sgen_pin_stats_register_global_remset (char *obj)
 	GlobalRemsetClassEntry *entry;
 
 	memset (&empty_entry, 0, sizeof (GlobalRemsetClassEntry));
-	entry = lookup_class_entry (&global_remset_class_hash_table, ((MonoVTable*)LOAD_VTABLE (obj))->klass, &empty_entry);
+	entry = (GlobalRemsetClassEntry *) lookup_class_entry (&global_remset_class_hash_table, ((MonoVTable*)LOAD_VTABLE (obj))->klass, &empty_entry);
 
 	++entry->num_remsets;
 }

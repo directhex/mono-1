@@ -484,12 +484,12 @@ mono_profiler_monitor_event      (MonoObject *obj, MonoProfilerMonitorEvent even
 }
 
 void
-mono_profiler_stat_hit (guchar *ip, void *context)
+mono_profiler_stat_hit (guchar *ip, void *tid, void *context)
 {
 	ProfilerDesc *prof;
 	for (prof = prof_list; prof; prof = prof->next) {
 		if ((prof->events & MONO_PROFILE_STATISTICAL) && prof->statistical_cb)
-			prof->statistical_cb (prof->profiler, ip, context);
+			prof->statistical_cb (prof->profiler, ip, tid, context);
 	}
 }
 
@@ -1112,6 +1112,8 @@ mono_profiler_load (const char *desc)
 		char* libname;
 		char *mname;
 		gboolean res;
+
+		res = FALSE;
 
 		if (col != NULL) {
 			mname = g_memdup (desc, col - desc + 1);

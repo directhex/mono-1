@@ -30,7 +30,9 @@
 #if NET_2_0
 
 using System;
+#if !MOBILE
 using System.CodeDom.Compiler;
+#endif
 using System.Collections;
 using System.IO;
 using System.Text;

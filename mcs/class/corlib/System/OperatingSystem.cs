@@ -90,6 +90,7 @@ namespace System {
 
 		public override string ToString ()
 		{
+#if NOT_PSS
 			string str;
 
 			switch ((int) _platform) {
@@ -129,6 +130,9 @@ namespace System {
 				sstr = " " + ServicePack;
 
 			return str + " " + _version.ToString() + sstr;
+#else
+			return "PlayStation Mobile";
+#endif
 		}
 	}
 }

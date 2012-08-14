@@ -7,6 +7,15 @@
 #define METHOD_ENTRY_IL_OFFSET -1
 #define METHOD_EXIT_IL_OFFSET 0xffffff
 
+typedef struct {
+	const char *name;
+	void (*connect) (const char *address);
+	void (*close1) (void);
+	void (*close2) (void);
+	gboolean (*send) (void *buf, int len);
+	int (*recv) (void *buf, int len);
+} MonoDebuggerTransport;
+
 void
 mono_debugger_agent_parse_options (char *options) MONO_INTERNAL;
 

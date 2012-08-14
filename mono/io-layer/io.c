@@ -48,6 +48,20 @@
 
 #undef DEBUG
 
+typedef struct _CryptoContext {
+	int handle;
+	int valid;
+	int size;
+	int type;
+} CryptoContext;
+
+#if defined(PLATFORM_ANDROID)
+#include "android-bridge.h"
+#define PSS_USE_CRYPTO
+#endif
+
+#undef PSS_USE_CRYPTO
+
 static void file_close (gpointer handle, gpointer data);
 static WapiFileType file_getfiletype(void);
 static gboolean file_read(gpointer handle, gpointer buffer,
@@ -79,6 +93,14 @@ struct _WapiHandleOps _wapi_file_ops = {
 	NULL,			/* special_wait */
 	NULL			/* prewait */
 };
+
+static WapiGetCryptoPolicy get_crypto_policy = NULL;
+
+void wapi_set_crypto_policy_callback (WapiGetCryptoPolicy cp_func)
+{
+	get_crypto_policy = cp_func;
+}
+
 
 void _wapi_file_details (gpointer handle_info)
 {

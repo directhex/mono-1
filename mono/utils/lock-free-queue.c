@@ -47,7 +47,9 @@
  */
 
 #include <stdlib.h>
+#if !defined (_MSC_VER)
 #include <unistd.h>
+#endif
 
 #include <mono/utils/mono-membar.h>
 #include <mono/utils/hazard-pointer.h>

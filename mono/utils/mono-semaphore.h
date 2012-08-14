@@ -33,6 +33,12 @@ typedef sem_t MonoSemType;
 #    define MONO_SEM_INIT(addr,value) sem_init ((addr), 0, (value))
 #    define MONO_SEM_DESTROY(sem) sem_destroy ((sem))
 #  endif
+#elif defined(TARGET_VITA)
+#  define MONO_HAS_SEMAPHORES
+#  include "bridge.h"
+typedef int MonoSemType;
+#  define MONO_SEM_INIT(addr,initial) do {*(addr) = pss_create_semaphore (initial);} while (0)
+#  define MONO_SEM_DESTROY(addr) pss_delete_semaphore(*(addr))
 #else
 #  define MONO_HAS_SEMAPHORES
 typedef HANDLE MonoSemType;

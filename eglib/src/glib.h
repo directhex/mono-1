@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -10,7 +11,9 @@
 #include <limits.h>
 
 #ifdef _MSC_VER
-#pragma include_alias(<eglib-config.h>, <eglib-config.hw>)
+#include <eglib-config.hw>
+#else
+#include <eglib-config.h>
 #endif
 
 /* VS 2010 and later have stdint.h */
@@ -19,7 +22,6 @@
 #include <stdint.h>
 #endif
 
-#include <eglib-config.h>
 #ifndef EGLIB_NO_REMAP
 #include <eglib-remap.h>
 #endif
@@ -289,8 +291,8 @@ gint    g_ascii_xdigit_value (gchar c);
  */
 typedef struct {
 	char *str;
-	gsize len;
-	gsize allocated_len;
+	gssize len;
+	gssize allocated_len;
 } GString;
 
 GString     *g_string_new           (const gchar *init);
@@ -882,6 +884,10 @@ GFileError g_file_error_from_errno (gint err_no);
 gint       g_file_open_tmp (const gchar *tmpl, gchar **name_used, GError **error);
 gboolean   g_file_test (const gchar *filename, GFileTest test);
 
+#ifdef SN_TARGET_PSP2
+gchar*     g_file_vita_get_full_path (const gchar *filename);
+#endif
+
 #define g_open open
 #define g_rename rename
 #define g_stat stat
@@ -1086,6 +1092,3 @@ glong     g_utf8_pointer_to_offset (const gchar *str, const gchar *pos);
 G_END_DECLS
 
 #endif
-
-
-

@@ -25,6 +25,7 @@
 #include "trace.h"
 
 static MonoTraceSpec trace_spec;
+static int skip;
 
 gboolean
 mono_trace_eval_exception (MonoClass *klass)
@@ -271,6 +272,10 @@ mono_trace_parse_options (const char *options)
 	int last_used;
 	int token;
 
+	if (getenv ("MONO_TRACE_SKIP")) {
+		skip = atoi (getenv ("MONO_TRACE_SKIP"));
+	}
+
 	trace_spec.enabled = TRUE;
 	if (*p == 0){
 		trace_spec.len = 1;
@@ -376,6 +381,9 @@ mono_trace_enter_method (MonoMethod *method, char *ebp)
 	char *fname;
 
 	if (!trace_spec.enabled)
+		return;
+
+	if (--skip > 0)
 		return;
 
 	fname = mono_method_full_name (method, TRUE);
@@ -527,6 +535,9 @@ mono_trace_leave_method (MonoMethod *method, ...)
 	va_list ap;
 
 	if (!trace_spec.enabled)
+		return;
+
+	if (--skip > 0)
 		return;
 
 	va_start(ap, method);

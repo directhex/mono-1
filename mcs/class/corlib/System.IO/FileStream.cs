@@ -41,10 +41,12 @@ using System.Security.Permissions;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-#if NET_2_1
+#if SCE_DISABLED
+#if NET_2_1 
 using System.IO.IsolatedStorage;
 #else
 using System.Security.AccessControl;
+#endif
 #endif
 
 #if NET_4_5
@@ -155,7 +157,7 @@ namespace System.IO
 		{
 		}
 
-#if !NET_2_1
+#if !NET_2_1 && SCE_DISABLED
 		public FileStream (SafeFileHandle handle, FileAccess access)
 			:this(handle, access, DefaultBufferSize, false)
 		{
@@ -946,7 +948,7 @@ namespace System.IO
 				throw exc;
 		}
 
-#if !NET_2_1
+#if !NET_2_1 && SCE_DISABLED
 		public FileSecurity GetAccessControl ()
 		{
 			throw new NotImplementedException ();

@@ -191,7 +191,7 @@ case "$host" in
 		with_sigaltstack=no
 		use_sigposix=yes
 		;;
-	*-*-linux-android*)
+	*-linux-android*)
 		host_win32=no
 		platform_android=yes
 		AC_DEFINE(PLATFORM_ANDROID,1,[Targeting the Android platform])
@@ -210,9 +210,7 @@ case "$host" in
 		with_sigaltstack=no
 		with_static_mono=no
 
-		# Android doesn't support boehm, as it's missing <link.h>
-		support_boehm=no
-		with_gc=sgen
+		no_version_script=yes
 
 		# isinf(3) requires -lm; see isinf check below
 		LDFLAGS="$LDFLAGS -lm"
@@ -417,7 +415,7 @@ AM_ICONV()
 
 AM_CONDITIONAL(NO_VERSION_SCRIPT, test x$no_version_script = xyes)
 
-AC_CHECK_HEADERS(sys/filio.h sys/sockio.h netdb.h utime.h sys/utime.h semaphore.h sys/un.h linux/rtc.h sys/syscall.h sys/mkdev.h sys/uio.h sys/param.h)
+AC_CHECK_HEADERS(sys/filio.h sys/sockio.h netdb.h utime.h sys/utime.h semaphore.h sys/un.h linux/rtc.h sys/syscall.h sys/mkdev.h sys/uio.h sys/param.h fcntl.h memory.h sys/stat.h)
 AC_CHECK_HEADERS(sys/param.h sys/socket.h sys/ipc.h sys/sem.h sys/utsname.h alloca.h ucontext.h pwd.h sys/select.h netinet/tcp.h netinet/in.h unistd.h sys/types.h link.h asm/sigcontext.h)
 AC_CHECK_HEADERS([linux/netlink.h linux/rtnetlink.h],
                   [], [], [#include <stddef.h>
@@ -1744,6 +1742,7 @@ if test x$target_win32 = xno; then
 	AC_CHECK_FUNCS(gethostid sethostid)
 	AC_CHECK_FUNCS(sethostname)
 	AC_CHECK_FUNCS(statfs)
+	AC_CHECK_FUNCS(fstat)
 	AC_CHECK_FUNCS(fstatfs)
 	AC_CHECK_FUNCS(statvfs)
 	AC_CHECK_FUNCS(fstatvfs)
@@ -2176,6 +2175,7 @@ case "$host" in
 	mips*)
 		TARGET=MIPS;
 		arch_target=mips;
+		sgen_supported=true
 		ACCESS_UNALIGNED="no"
 		JIT_SUPPORTED=yes
 

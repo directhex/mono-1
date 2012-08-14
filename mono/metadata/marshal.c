@@ -41,6 +41,8 @@
 #include <string.h>
 #include <errno.h>
 
+#define DO_SAVE_LMF 1
+
 /* #define DEBUG_RUNTIME_CODE */
 
 #define OPDEF(a,b,c,d,e,f,g,h,i,j) \
@@ -2878,7 +2880,7 @@ mono_marshal_get_remoting_invoke (MonoMethod *method)
 		return res;
 
 	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_REMOTING_INVOKE);
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	params_var = mono_mb_emit_save_args (mb, sig, TRUE);
 
@@ -3163,7 +3165,7 @@ mono_marshal_get_xappdomain_dispatch (MonoMethod *method, int *marshal_types, in
 	csig->hasthis = FALSE;
 
 	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_XDOMAIN_DISPATCH);
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* Locals */
 
@@ -3420,7 +3422,7 @@ mono_marshal_get_xappdomain_invoke (MonoMethod *method)
 	sig = mono_signature_no_pinvoke (method);
 
 	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_XDOMAIN_INVOKE);
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* Count the number of parameters that need to be serialized */
 
@@ -4820,7 +4822,7 @@ mono_marshal_get_ldfld_remote_wrapper (MonoClass *klass)
 
 	mb = mono_mb_new_no_dup_name (mono_defaults.object_class, "__mono_load_remote_field_new_wrapper", MONO_WRAPPER_LDFLD_REMOTE);
 
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	sig = mono_metadata_signature_alloc (mono_defaults.corlib, 3);
 	sig->params [0] = &mono_defaults.object_class->byval_arg;
@@ -5162,7 +5164,7 @@ mono_marshal_get_stfld_remote_wrapper (MonoClass *klass)
 
 	mb = mono_mb_new_no_dup_name (mono_defaults.object_class, "__mono_store_remote_field_new_wrapper", MONO_WRAPPER_STFLD_REMOTE);
 
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	sig = mono_metadata_signature_alloc (mono_defaults.corlib, 4);
 	sig->params [0] = &mono_defaults.object_class->byval_arg;
@@ -5355,7 +5357,7 @@ mono_marshal_get_icall_wrapper (MonoMethodSignature *sig, const char *name, gcon
 
 	mb = mono_mb_new (mono_defaults.object_class, name, MONO_WRAPPER_MANAGED_TO_NATIVE);
 
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* Add an explicit this argument */
 	if (sig->hasthis)
@@ -8355,7 +8357,7 @@ mono_marshal_get_native_wrapper (MonoMethod *method, gboolean check_exceptions, 
 
 	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_MANAGED_TO_NATIVE);
 
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/*
 	 * In AOT mode and embedding scenarios, it is possible that the icall is not
@@ -8471,7 +8473,7 @@ mono_marshal_get_native_func_wrapper (MonoImage *image, MonoMethodSignature *sig
 
 	name = g_strdup_printf ("wrapper_native_%p", func);
 	mb = mono_mb_new (mono_defaults.object_class, name, MONO_WRAPPER_MANAGED_TO_NATIVE);
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	mono_marshal_emit_native_wrapper (image, mb, sig, piinfo, mspecs, func, FALSE, TRUE);
 
@@ -9193,7 +9195,7 @@ mono_marshal_get_isinst (MonoClass *klass)
 	mb = mono_mb_new (mono_defaults.object_class, name, MONO_WRAPPER_ISINST);
 	g_free (name);
 	
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* check if the object is a proxy that needs special cast */
 	mono_mb_emit_ldarg (mb, 0);
@@ -9275,7 +9277,7 @@ mono_marshal_get_castclass (MonoClass *klass)
 	mb = mono_mb_new (mono_defaults.object_class, name, MONO_WRAPPER_CASTCLASS);
 	g_free (name);
 	
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* check if the object is a proxy that needs special cast */
 	mono_mb_emit_ldarg (mb, 0);
@@ -9342,7 +9344,7 @@ mono_marshal_get_proxy_cancast (MonoClass *klass)
 	g_free (klass_name);
 	g_free (name);
 	
-	mb->method->save_lmf = 1;
+	mb->method->save_lmf = DO_SAVE_LMF;
 
 	/* get the real proxy from the transparent proxy*/
 	mono_mb_emit_ldarg (mb, 0);

@@ -8,6 +8,7 @@
  *
  * Copyright 2001-2003 Ximian, Inc
  * Copyright 2003-2010 Novell, Inc.
+ * Copyright 2011 Xamarin Inc (http://www.xamarin.com)
  * 
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -33,7 +34,10 @@
 
 //#define CARDTABLE_STATS
 
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
@@ -46,6 +50,7 @@ guint8 *sgen_cardtable;
 long long marked_cards;
 long long scanned_cards;
 long long scanned_objects;
+long long remarked_cards;
 
 static long long los_marked_cards;
 static long long large_objects;
@@ -153,11 +158,7 @@ sgen_card_table_align_pointer (void *ptr)
 void
 sgen_card_table_mark_range (mword address, mword size)
 {
-	mword end = address + size;
-	do {
-		sgen_card_table_mark_address (address);
-		address += CARD_SIZE_IN_BYTES;
-	} while (address < end);
+	memset (sgen_card_table_get_card_address (address), 1, cards_in_range (address, size));
 }
 
 static gboolean
@@ -186,6 +187,8 @@ card_table_init (void)
 #ifdef HEAVY_STATISTICS
 	mono_counters_register ("marked cards", MONO_COUNTER_GC | MONO_COUNTER_LONG, &marked_cards);
 	mono_counters_register ("scanned cards", MONO_COUNTER_GC | MONO_COUNTER_LONG, &scanned_cards);
+	mono_counters_register ("remarked cards", MONO_COUNTER_GC | MONO_COUNTER_LONG, &remarked_cards);
+
 	mono_counters_register ("los marked cards", MONO_COUNTER_GC | MONO_COUNTER_LONG, &los_marked_cards);
 	mono_counters_register ("los array cards scanned ", MONO_COUNTER_GC | MONO_COUNTER_LONG, &los_array_cards);
 	mono_counters_register ("los array remsets", MONO_COUNTER_GC | MONO_COUNTER_LONG, &los_array_remsets);
@@ -315,6 +318,24 @@ collect_faulted_cards (void)
 
 	printf ("TOTAL card pages %d faulted %d\n", CARD_PAGES, count);
 }
+
+void
+sgen_card_table_dump_obj_card (char *object, size_t size, void *dummy)
+{
+	guint8 *start = sgen_card_table_get_card_scan_address (object);
+	guint8 *end = start + cards_in_range (object, size);
+	int cnt = 0;
+	printf ("--obj %p %d cards [%p %p]--", object, size, start, end);
+	for (; start < end; ++start) {
+		if (cnt == 0)
+			printf ("\n\t[%p] ", start);
+		printf ("%x ", *start);
+		++cnt;
+		if (cnt == 8)
+			cnt = 0;
+	}
+	printf ("\n");
+}
 #endif
 
 #define MWORD_MASK (sizeof (mword) - 1)
@@ -325,21 +346,31 @@ find_card_offset (mword card)
 /*XXX Use assembly as this generates some pretty bad code */
 #if defined(__i386__) && defined(__GNUC__)
 	return  (__builtin_ffs (card) - 1) / 8;
+#elif defined(__i386__) && defined(_MSC_VER)
+	mword idx;
+
+	if (_BitScanForward (&idx, card) != 0)
+		return idx / 8;
+	else
+		return 0;
 #elif defined(__x86_64__) && defined(__GNUC__)
 	return (__builtin_ffsll (card) - 1) / 8;
 #elif defined(__s390x__)
 	return (__builtin_ffsll (GUINT64_TO_LE(card)) - 1) / 8;
+#elif defined(__arm__) && defined(__GNUC__)
+	return  (__builtin_ffs (card) - 1) / 8;
+#elif defined(TARGET_VITA)
+	if (card == 0)
+		return 0;
+	else
+		return (__builtin_clz (__builtin_rbit (card))) / 8;
 #else
-	// FIXME:
-	g_assert_not_reached ();
-	/*
 	int i;
 	guint8 *ptr = (guint *) &card;
 	for (i = 0; i < sizeof (mword); ++i) {
 		if (ptr[i])
 			return i;
 	}
-	*/
 	return 0;
 #endif
 }

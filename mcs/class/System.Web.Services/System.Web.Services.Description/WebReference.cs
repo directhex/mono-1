@@ -30,7 +30,9 @@
 
 using System.Web.Services.Discovery;
 using System.Collections.Specialized;
+#if !MOBILE
 using System.CodeDom;
+#endif
 
 namespace System.Web.Services.Description 
 {

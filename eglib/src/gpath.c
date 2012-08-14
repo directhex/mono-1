@@ -72,7 +72,9 @@ g_build_path (const gchar *separator, const gchar *first_element, ...)
 		
 		/* get the next element */
 		do {
-			if (!(next = va_arg (args, char *)))
+			next = va_arg (args, char *);
+
+			if (!next)
 				break;
 			
 			/* remove leading separators */
@@ -96,6 +98,10 @@ g_path_get_dirname (const gchar *filename)
 	g_return_val_if_fail (filename != NULL, NULL);
 
 	p = strrchr (filename, G_DIR_SEPARATOR);
+#if defined(G_OS_WIN32) && defined (TARGET_PSS)
+	if (p == NULL)
+		p = strrchr (filename, '\\');
+#endif
 	if (p == NULL)
 		return g_strdup (".");
 	if (p == filename)
@@ -120,6 +126,10 @@ g_path_get_basename (const char *filename)
 
 	/* No separator -> filename */
 	r = strrchr (filename, G_DIR_SEPARATOR);
+#if defined(G_OS_WIN32) && defined (TARGET_PSS)
+	if (r == NULL)
+		r = strrchr (filename, '\\');
+#endif
 	if (r == NULL)
 		return g_strdup (filename);
 
@@ -128,6 +138,10 @@ g_path_get_basename (const char *filename)
 		char *copy = g_strdup (filename);
 		copy [r-filename] = 0;
 		r = strrchr (copy, G_DIR_SEPARATOR);
+#if defined(G_OS_WIN32) && defined (TARGET_PSS)
+		if (r == NULL)
+			r = strrchr (copy, '\\');
+#endif
 
 		if (r == NULL){
 			g_free (copy);			

@@ -39,6 +39,19 @@
 #ifdef MONO_ARCH_HAS_MONO_CONTEXT
 #define USE_MONO_CTX
 #else
+#ifdef _MSC_VER
+#define ARCH_STORE_REGS(x)	\
+		__asm mov eax, x	\
+		__asm mov dword ptr [eax+0], edi \
+		__asm mov dword ptr [eax+4], esi \
+		__asm mov dword ptr [eax+8], ebx \
+		__asm mov dword ptr [eax+12], edx \
+		__asm mov dword ptr [eax+16], ecx \
+		__asm mov dword ptr [eax+20], eax \
+		__asm mov dword ptr [eax+24], ebp \
+		__asm mov dword ptr [eax+28], esp \
+
+#else
 #define ARCH_STORE_REGS(ptr)	\
 	__asm__ __volatile__(	\
 		"mov %%edi,0(%0)\n"	\
@@ -52,6 +65,7 @@
 		:			\
 		: "r" (ptr)	\
 	)
+#endif
 #endif
 
 /*FIXME, move this to mono-sigcontext as this is generaly useful.*/
@@ -105,6 +119,10 @@
 
 /* We dont store ip, sp */
 #define ARCH_NUM_REGS 14
+#ifdef TARGET_VITA
+extern void mono_sgen_arch_store_regs (gpointer regs) MONO_INTERNAL;
+#define ARCH_STORE_REGS(ptr)	mono_sgen_arch_store_regs ((ptr))
+#else
 #define ARCH_STORE_REGS(ptr)		\
 	__asm__ __volatile__(			\
 		"push {lr}\n"				\
@@ -114,6 +132,7 @@
 		:							\
 		: "r" (ptr)					\
 	)
+#endif
 
 #define ARCH_SIGCTX_SP(ctx)	(UCONTEXT_REG_SP((ctx)))
 #define ARCH_SIGCTX_IP(ctx)	(UCONTEXT_REG_PC((ctx)))
@@ -132,6 +151,58 @@
 	((a)[11]) = (gpointer) (UCONTEXT_REG_R11((ctx)));	\
 	((a)[12]) = (gpointer) (UCONTEXT_REG_R12((ctx)));	\
 	((a)[13]) = (gpointer) (UCONTEXT_REG_LR((ctx)));	\
+	} while (0)
+
+#elif defined(__mips__)
+
+#define REDZONE_SIZE	0
+
+/* register 0 is always 0, so we skip it */
+#define ARCH_NUM_REGS 31
+#define ARCH_STORE_REGS(ptr)		\
+	__asm__ __volatile__(	\
+		"sw $1,0(%0)\n\t"	\
+		"sw $2,4(%0)\n\t"	\
+		"sw $3,8(%0)\n\t"	\
+		"sw $4,12(%0)\n\t"	\
+		"sw $5,16(%0)\n\t"	\
+		"sw $6,20(%0)\n\t"	\
+		"sw $7,24(%0)\n\t"	\
+		"sw $8,28(%0)\n\t"	\
+		"sw $9,32(%0)\n\t"	\
+		"sw $10,36(%0)\n\t"	\
+		"sw $11,40(%0)\n\t"	\
+		"sw $12,44(%0)\n\t"	\
+		"sw $13,48(%0)\n\t"	\
+		"sw $14,52(%0)\n\t"	\
+		"sw $15,56(%0)\n\t"	\
+		"sw $16,60(%0)\n\t"	\
+		"sw $17,64(%0)\n\t"	\
+		"sw $18,68(%0)\n\t"	\
+		"sw $19,72(%0)\n\t"	\
+		"sw $20,76(%0)\n\t"	\
+		"sw $21,80(%0)\n\t"	\
+		"sw $22,84(%0)\n\t"	\
+		"sw $23,88(%0)\n\t"	\
+		"sw $24,92(%0)\n\t"	\
+		"sw $25,96(%0)\n\t"	\
+		"sw $26,100(%0)\n\t"	\
+		"sw $27,104(%0)\n\t"	\
+		"sw $28,108(%0)\n\t"	\
+		"sw $29,112(%0)\n\t"	\
+		"sw $30,116(%0)\n\t"	\
+		"sw $31,120(%0)\n\t"	\
+		: 			\
+		: "r" (ptr)		\
+		: "memory"			\
+	)
+
+#define ARCH_SIGCTX_SP(ctx)	(UCONTEXT_GREGS((ctx))[29])
+#define ARCH_SIGCTX_IP(ctx)	(UCONTEXT_REG_PC((ctx)))
+#define ARCH_COPY_SIGCTX_REGS(a,ctx) do {			\
+	int __regnum;	\
+	for (__regnum = 0; __regnum < 32; ++__regnum)	\
+		((a)[__regnum]) = (gpointer) (UCONTEXT_GREGS((ctx))[__regnum]);		\
 	} while (0)
 
 #elif defined(__s390x__)

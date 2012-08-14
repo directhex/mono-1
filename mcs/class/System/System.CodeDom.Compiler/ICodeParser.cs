@@ -29,6 +29,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 namespace System.CodeDom.Compiler
 {
 	using System.CodeDom;
@@ -39,3 +40,4 @@ namespace System.CodeDom.Compiler
 		CodeCompileUnit Parse( TextReader codeStream );
 	}
 }
+#endif

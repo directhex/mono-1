@@ -29,6 +29,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 namespace Mono.CSharp
 {
 	using System;
@@ -1601,3 +1602,4 @@ namespace Mono.CSharp
 		};
 	}
 }
+#endif

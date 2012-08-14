@@ -106,6 +106,7 @@ int k;
     if (action_file) { fclose(action_file); unlink(action_file_name); }
     if (prolog_file) { fclose(prolog_file); unlink(prolog_file_name); }
     if (local_file) { fclose(local_file); unlink(local_file_name); }
+    printf("===============exit=======================[%d]\n", __LINE__);
     exit(k);
 }
 
@@ -193,7 +194,7 @@ char *argv[];
 	    line_format = "#line %d \"%s\"\n";
 	    default_line_format = "#line default\n";
 	    break;
-	    
+
 	case 'v':
 	    vflag = 1;
 	    break;

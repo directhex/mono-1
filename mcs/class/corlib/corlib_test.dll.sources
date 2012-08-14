@@ -112,9 +112,6 @@ System.IO/StringWriterTest.cs
 System.IO/TextReaderTest.cs
 System.IO/TextWriterTest.cs
 System.IO/UnmanagedMemoryStreamTest.cs
-System.IO.IsolatedStorage/IsolatedStorageTest.cs
-System.IO.IsolatedStorage/IsolatedStorageFileTest.cs
-System.IO.IsolatedStorage/IsolatedStorageFileStreamTest.cs
 System/MathTest.cs
 System/MulticastDelegate.cs
 System/NumberFormatterTest.cs
@@ -283,9 +280,6 @@ System.Security.Permissions/GacIdentityPermissionAttributeTest.cs
 System.Security.Permissions/GacIdentityPermissionTest.cs
 System.Security.Permissions/HostProtectionAttributeTest.cs
 System.Security.Permissions/IBuiltInPermissionTest.cs
-System.Security.Permissions/IsolatedStorageFilePermissionAttributeTest.cs
-System.Security.Permissions/IsolatedStorageFilePermissionTest.cs
-System.Security.Permissions/IsolatedStoragePermissionAttributeTest.cs
 System.Security.Permissions/KeyContainerPermissionAttributeTest.cs
 System.Security.Permissions/PermissionSetAttributeTest.cs
 System.Security.Permissions/PrincipalPermissionAttributeTest.cs
@@ -412,8 +406,6 @@ System.IO/FileNotFoundExceptionCas.cs
 System.IO/FileStreamCas.cs
 System.IO/PathCas.cs
 System.IO/StreamCas.cs
-System.IO.IsolatedStorage/IsolatedStorageFileCas.cs
-System.IO.IsolatedStorage/IsolatedStorageFileStreamCas.cs
 System.Reflection/AssemblyCas.cs
 System.Reflection/AssemblyNameCas.cs
 System.Reflection/ModuleCas.cs

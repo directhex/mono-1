@@ -298,7 +298,36 @@
 	#define UCONTEXT_REG_R11(ctx) (((arm_ucontext*)(ctx))->sig_ctx.arm_fp)
 	#define UCONTEXT_REG_R12(ctx) (((arm_ucontext*)(ctx))->sig_ctx.arm_ip)
 	#define UCONTEXT_REG_CPSR(ctx) (((arm_ucontext*)(ctx))->sig_ctx.arm_cpsr)
+#elif defined(TARGET_VITA)
+#include "bridge.h"
+typedef pss_ucontext arm_ucontext;
+	#define UCONTEXT_REG_PC(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_PC])
+	#define UCONTEXT_REG_SP(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_SP])
+	#define UCONTEXT_REG_LR(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_LR])
+	#define UCONTEXT_REG_R0(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R0])
+	#define UCONTEXT_REG_R1(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R1])
+	#define UCONTEXT_REG_R2(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R2])
+	#define UCONTEXT_REG_R3(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R3])
+	#define UCONTEXT_REG_R4(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R4])
+	#define UCONTEXT_REG_R5(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R5])
+	#define UCONTEXT_REG_R6(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R6])
+	#define UCONTEXT_REG_R7(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R7])
+	#define UCONTEXT_REG_R8(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R8])
+	#define UCONTEXT_REG_R9(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R9])
+	#define UCONTEXT_REG_R10(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_R10])
+	#define UCONTEXT_REG_R11(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_FP])
+	#define UCONTEXT_REG_R12(ctx) (((arm_ucontext*)(ctx))->iregs.reg [ARMREG_IP])
+    #define UCONTEXT_REG_CPSR(ctx) (((arm_ucontext*)(ctx))->iregs.cpsr)
 #endif
+#elif defined(__mips__)
+
+# if HAVE_UCONTEXT_H
+#  include <ucontext.h>
+# endif
+
+# define UCONTEXT_GREGS(ctx)	(((ucontext_t *)(ctx))->uc_mcontext.gregs)
+# define UCONTEXT_REG_PC(ctx)	(((ucontext_t *)(ctx))->uc_mcontext.pc)
+
 #elif defined(__s390x__)
 
 # if HAVE_UCONTEXT_H

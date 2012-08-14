@@ -132,6 +132,11 @@ static CRITICAL_SECTION contexts_mutex;
 static StaticDataInfo thread_static_info;
 static StaticDataInfo context_static_info;
 
+/* The hash of user threads
+ * Protected by mono_threads_lock ().
+ */
+static MonoGHashTable *user_threads=NULL;
+
 /* The hash of existing threads (key is thread ID, value is
  * MonoInternalThread*) that need joining before exit
  */
@@ -211,6 +216,10 @@ static HANDLE background_change_event;
 static gboolean shutting_down = FALSE;
 
 static gint32 managed_thread_id_counter = 0;
+
+static guint32 num_threads = 0;
+static guint32 max_threads = 0;
+static MonoThreadsExhaustedCallback threads_exhausted_cb;
 
 static guint32
 get_next_managed_thread_id (void)
@@ -378,6 +387,13 @@ static void thread_cleanup (MonoInternalThread *thread)
 	LeaveCriticalSection (thread->synch_cs);
 	
 	mono_profiler_thread_end (thread->tid);
+
+	mono_threads_lock ();
+	if (mono_g_hash_table_lookup (threads, thread) == thread) {
+		mono_g_hash_table_remove (threads, thread);
+		num_threads--;
+	}
+	mono_threads_unlock ();
 
 	if (thread == mono_thread_internal_current ())
 		mono_thread_pop_appdomain_ref ();
@@ -1012,6 +1028,21 @@ HANDLE ves_icall_System_Threading_Thread_Thread_internal(MonoThread *this,
 			threads_starting_up = mono_g_hash_table_new_type (NULL, NULL, MONO_HASH_KEY_VALUE_GC);
 		}
 		mono_g_hash_table_insert (threads_starting_up, this, this);
+
+		if (user_threads == NULL) {
+			MONO_GC_REGISTER_ROOT_FIXED (user_threads);
+			user_threads = mono_g_hash_table_new_type (NULL, NULL, MONO_HASH_KEY_VALUE_GC);
+		}
+
+		num_threads++;
+		if (max_threads > 0 && num_threads > max_threads && threads_exhausted_cb != NULL) {
+			InterlockedDecrement (&num_threads);
+			threads_exhausted_cb ();
+			g_free (start_info);
+			return(NULL);
+		}
+		mono_g_hash_table_insert (user_threads, internal, internal);
+
 		mono_threads_unlock ();	
 
 		thread=mono_create_thread(NULL, default_stacksize_for_thread (internal), (LPTHREAD_START_ROUTINE)start_wrapper, start_info,
@@ -1930,8 +1961,15 @@ ves_icall_System_Threading_Interlocked_Read_Long (gint64 *location)
 void
 ves_icall_System_Threading_Thread_MemoryBarrier (void)
 {
+#if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#  if defined(HAVE_GCC_SYNC_ATOMICS)
+	__sync_synchronize ();
+#  else
+	__asm__ __volatile__ ("dmb sy\n");
+#  endif
 	mono_threads_lock ();
 	mono_threads_unlock ();
+#endif
 }
 
 void
@@ -4602,4 +4640,14 @@ resume_thread_internal (MonoInternalThread *thread)
 	thread->state &= ~ThreadState_Suspended;
 	LeaveCriticalSection (thread->synch_cs);
 	return TRUE;
+}
+
+void
+mono_thread_set_threads_exhausted_callback (MonoThreadsExhaustedCallback func) {
+	threads_exhausted_cb = func;
+}
+
+void
+mono_thread_set_max_threads (uint32_t num) {
+	max_threads = num;
 }

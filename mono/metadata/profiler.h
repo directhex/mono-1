@@ -130,7 +130,7 @@ typedef void (*MonoProfileMethodInline)   (MonoProfiler *prof, MonoMethod   *par
 typedef void (*MonoProfileThreadFunc)     (MonoProfiler *prof, uintptr_t tid);
 typedef void (*MonoProfileThreadNameFunc) (MonoProfiler *prof, uintptr_t tid, const char *name);
 typedef void (*MonoProfileAllocFunc)      (MonoProfiler *prof, MonoObject *obj, MonoClass *klass);
-typedef void (*MonoProfileStatFunc)       (MonoProfiler *prof, mono_byte *ip, void *context);
+typedef void (*MonoProfileStatFunc)       (MonoProfiler *prof, mono_byte *ip, void *tid, void *context);
 typedef void (*MonoProfileStatCallChainFunc) (MonoProfiler *prof, int call_chain_depth, mono_byte **ip, void *context);
 typedef void (*MonoProfileGCFunc)         (MonoProfiler *prof, MonoGCEvent event, int generation);
 typedef void (*MonoProfileGCMoveFunc)     (MonoProfiler *prof, void **objects, int num);

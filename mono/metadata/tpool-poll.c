@@ -172,6 +172,8 @@ tp_poll_wait (gpointer p)
 		MonoMList *list;
 		MonoObject *ares;
 
+		mono_gc_set_skip_thread (TRUE);
+
 		do {
 			if (nsock == -1) {
 				if (THREAD_WANTS_A_BREAK (thread))
@@ -180,6 +182,8 @@ tp_poll_wait (gpointer p)
 
 			nsock = mono_poll (pfds, maxfd, -1);
 		} while (nsock == -1 && errno == EINTR);
+
+		mono_gc_set_skip_thread (FALSE);
 
 		/* 
 		 * Apart from EINTR, we only check EBADF, for the rest:
@@ -230,7 +234,10 @@ tp_poll_wait (gpointer p)
 					INIT_POLLFD (&pfds [i], -1, 0);
 				//async_results = g_renew (gpointer, async_results, allocated * 2);
 			}
-#ifndef HOST_WIN32
+#ifdef TARGET_VITA
+			// FIXME:
+			g_assert_not_reached ();
+#elif !defined(HOST_WIN32)
 			nread = read (data->pipe [0], one, 1);
 #else
 			nread = recv ((SOCKET) data->pipe [0], one, 1, 0);

@@ -14,6 +14,7 @@
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/class.h>
 #include <mono/metadata/class-internals.h>
+#include <mono/metadata/object-internals.h>
 #include <mono/metadata/runtime.h>
 #include <mono/metadata/monitor.h>
 

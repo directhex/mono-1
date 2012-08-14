@@ -27,6 +27,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using System;
 using System.Collections;
 using System.ComponentModel;
@@ -905,3 +906,4 @@ namespace System.Diagnostics
 // }
 //
 // http://www.whitehats.ca/main/members/Malik/malik_eventlogs/malik_eventlogs.html
+#endif

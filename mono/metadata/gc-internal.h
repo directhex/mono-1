@@ -110,6 +110,8 @@ extern gboolean mono_gc_register_thread (void *baseptr) MONO_INTERNAL;
 
 extern gboolean mono_gc_is_finalizer_internal_thread (MonoInternalThread *thread) MONO_INTERNAL;
 
+extern gboolean mono_gc_is_finalizer_native_thread (void *thr) MONO_INTERNAL;
+
 extern void mono_gc_set_stack_end (void *stack_end) MONO_INTERNAL;
 
 /* only valid after the RECLAIM_START GC event and before RECLAIM_END
@@ -320,6 +322,8 @@ guint8* mono_gc_get_card_table (int *shift_bits, gpointer *card_mask) MONO_INTER
 void* mono_gc_get_nursery (int *shift_bits, size_t *size) MONO_INTERNAL;
 
 void mono_gc_set_current_thread_appdomain (MonoDomain *domain) MONO_INTERNAL;
+
+void mono_gc_set_skip_thread (gboolean skip) MONO_INTERNAL;
 
 /*
  * Return whenever GC is disabled

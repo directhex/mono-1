@@ -34,7 +34,9 @@
 #include <sys/time.h>
 #endif
 #include <sys/types.h>
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -43,7 +45,7 @@
 #include <sys/socket.h>
 #endif
 #include <mono/utils/mono-poll.h>
-#ifdef HAVE_EPOLL
+#if defined (HAVE_EPOLL) && !defined (TARGET_VITA)
 #include <sys/epoll.h>
 #endif
 #ifdef HAVE_KQUEUE
@@ -159,6 +161,9 @@ static MonoClass *process_async_call_klass;
 static GPtrArray *wsqs;
 CRITICAL_SECTION wsqs_lock;
 
+static uint32_t max_tp_threads = 0;
+static uint32_t max_io_threads = 0;
+
 /* Hooks */
 static MonoThreadPoolFunc tp_start_func;
 static MonoThreadPoolFunc tp_finish_func;
@@ -228,8 +233,8 @@ is_socket_type (MonoDomain *domain, MonoClass *klass)
 
 	/* If moonlight, check if the type is in System.Net.dll too */
 	if (version == NULL) {
-		version = mono_get_runtime_info ()->framework_version;
-		moonlight = !strcmp (version, "2.1");
+		version = mono_get_runtime_info ()->runtime_version;
+		moonlight = !strcmp (version, "moonlight");
 	}
 
 	if (!moonlight)
@@ -494,8 +499,12 @@ init_event_system (SocketIOData *data)
 	if (data->event_system == KQUEUE_BACKEND)
 		data->event_data = tp_kqueue_init (data);
 #endif
+#ifdef DISABLE_SOCKETS
+		data->event_data = NULL;
+#else
 	if (data->event_system == POLL_BACKEND)
 		data->event_data = tp_poll_init (data);
+#endif
 }
 
 static void
@@ -812,11 +821,23 @@ monitor_thread (gpointer unused)
 }
 
 void
+mono_threadpool_set_max_threads (uint32_t tp_max, uint32_t io_max)
+{
+	max_tp_threads = tp_max;
+	max_io_threads = io_max;
+}
+
+
+void
 mono_thread_pool_init ()
 {
 	gint threads_per_cpu = 1;
 	gint thread_count;
 	gint cpu_count = mono_cpu_count ();
+	gint io_min = 0;
+	gint io_max = 0;
+	gint thread_min = 0;
+	gint thread_max = 0;
 	int result;
 
 	if (tp_inited == 2)
@@ -840,8 +861,23 @@ mono_thread_pool_init ()
 	}
 
 	thread_count = MIN (cpu_count * threads_per_cpu, 100 * cpu_count);
-	threadpool_init (&async_tp, thread_count, MAX (100 * cpu_count, thread_count), async_invoke_thread);
-	threadpool_init (&async_io_tp, cpu_count * 2, cpu_count * 4, async_invoke_thread);
+
+	thread_min = thread_count;
+	thread_max = MAX (100 * cpu_count, thread_count);
+	if (max_tp_threads > 0) {
+		thread_max = MIN (thread_max, max_tp_threads);
+		thread_min = MAX (thread_min, max_tp_threads);
+	}
+
+	io_min = cpu_count * 2;
+	io_max = cpu_count * 4;
+	if (max_io_threads > 0) {
+		io_max = MIN (io_max, max_io_threads);
+		io_min = MAX (io_min, max_io_threads);
+	}
+
+	threadpool_init (&async_tp, thread_min, thread_max, async_invoke_thread);
+	threadpool_init (&async_io_tp, io_min, io_max, async_invoke_thread);
 	async_io_tp.is_io = TRUE;
 
 	async_call_klass = mono_class_from_name (mono_defaults.corlib, "System", "MonoAsyncCall");
@@ -1479,6 +1515,8 @@ async_invoke_thread (gpointer data)
 		while (!must_die && !data && n_naps < 4) {
 			gboolean res;
 
+			mono_gc_set_skip_thread (TRUE);
+
 			InterlockedIncrement (&tp->waiting);
 #if defined(__OpenBSD__)
 			while (mono_cq_count (tp->queue) == 0 && (res = mono_sem_wait (&tp->new_job, TRUE)) == -1) {// && errno == EINTR) {
@@ -1491,6 +1529,9 @@ async_invoke_thread (gpointer data)
 					mono_thread_interruption_checkpoint ();
 			}
 			InterlockedDecrement (&tp->waiting);
+
+			mono_gc_set_skip_thread (FALSE);
+			
 			if (mono_runtime_is_shutting_down ())
 				break;
 			must_die = should_i_die (tp);

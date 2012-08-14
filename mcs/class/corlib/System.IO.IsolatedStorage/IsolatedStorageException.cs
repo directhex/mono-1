@@ -26,6 +26,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if SCE_DISABLED
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
@@ -57,3 +58,4 @@ namespace System.IO.IsolatedStorage
 		}
 	}
 }
+#endif

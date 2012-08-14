@@ -235,10 +235,22 @@ typedef struct {
 #define MONO_CONTEXT_GET_BP(ctx) ((gpointer)((ctx)->regs [ARMREG_FP]))
 #define MONO_CONTEXT_GET_SP(ctx) ((gpointer)((ctx)->esp))
 
+#ifdef TARGET_VITA
+
+#define MONO_ARCH_HAS_MONO_CONTEXT 1
+
+#define MONO_CONTEXT_GET_CURRENT(ctx)	do { 	\
+	mono_sgen_arch_store_regs (&ctx.regs); \
+	ctx.eip = ctx.regs [ARMREG_PC];		   \
+	ctx.esp = ctx.regs [ARMREG_SP]; \
+	ctx.cpsr = 0; \
+	} while (0)
+#else
 // FIXME:
 #define MONO_CONTEXT_GET_CURRENT(ctx)	do { 	\
 	g_assert_not_reached (); \
 } while (0)
+#endif
 
 #elif defined(__mono_ppc__) /* defined(__arm__) */
 

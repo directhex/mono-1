@@ -28,6 +28,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 namespace System.Diagnostics {
 #if !NET_2_0
 	[Serializable]
@@ -39,3 +40,4 @@ namespace System.Diagnostics {
 		Normal=0,
 	}
 }
+#endif

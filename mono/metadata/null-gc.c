@@ -418,4 +418,8 @@ BOOL APIENTRY mono_gc_dllmain (HMODULE module_handle, DWORD reason, LPVOID reser
 }
 #endif
 
+void mono_gc_set_skip_thread (gboolean skip)
+{
+}
+
 #endif

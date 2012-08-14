@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libmono", "libmono_vita.vcproj", "{4F5B5F72-1558-4910-97F0-DDC904E3005E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		PSP2 Debug|Win32 = PSP2 Debug|Win32
+		PSP2 Release|Win32 = PSP2 Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4F5B5F72-1558-4910-97F0-DDC904E3005E}.PSP2 Debug|Win32.ActiveCfg = PSP2 Debug|Win32
+		{4F5B5F72-1558-4910-97F0-DDC904E3005E}.PSP2 Debug|Win32.Build.0 = PSP2 Debug|Win32
+		{4F5B5F72-1558-4910-97F0-DDC904E3005E}.PSP2 Release|Win32.ActiveCfg = PSP2 Release|Win32
+		{4F5B5F72-1558-4910-97F0-DDC904E3005E}.PSP2 Release|Win32.Build.0 = PSP2 Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

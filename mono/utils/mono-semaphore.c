@@ -16,6 +16,9 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#ifdef TARGET_VITA
+# include "bridge.h"
+#endif
 
 #if (defined (HAVE_SEMAPHORE_H) || defined (USE_MACH_SEMA)) && !defined(HOST_WIN32)
 /* sem_* or semaphore_* functions in use */
@@ -139,6 +142,24 @@ mono_sem_post (MonoSemType *sem)
 	return res;
 }
 
+#elif defined(TARGET_VITA)
+int
+mono_sem_wait (MonoSemType *sem, gboolean alertable)
+{
+	return pss_wait_semaphore (*sem, 1, NULL);
+}
+
+int
+mono_sem_timedwait (MonoSemType *sem, guint32 timeout_ms, gboolean alertable)
+{
+	return pss_wait_semaphore (*sem, 1, &timeout_ms);
+}
+
+int
+mono_sem_post (MonoSemType *sem)
+{
+	return pss_signal_semaphore (*sem, 1);
+}
 #else
 /* Windows or io-layer functions in use */
 int

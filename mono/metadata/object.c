@@ -45,6 +45,10 @@
 #include <mono/utils/mono-error-internals.h>
 #include "cominterop.h"
 
+#ifdef TARGET_VITA
+#include "bridge.h"
+#endif
+
 #ifdef HAVE_BOEHM_GC
 #define NEED_TO_ZERO_PTRFREE 1
 #define ALLOC_PTRFREE(obj,vt,size) do { (obj) = GC_MALLOC_ATOMIC ((size)); (obj)->vtable = (vt); (obj)->synchronisation = NULL;} while (0)
@@ -1497,6 +1501,22 @@ list_index_for_size (int item_size)
 	return i;
 }
 
+static void
+unlock_thunk (void *p)
+{
+#if defined(TARGET_VITA)
+	pss_code_mem_unlock ();
+#endif
+}
+
+static void
+lock_thunk (void *p)
+{
+#if defined(TARGET_VITA)
+	pss_code_mem_lock ();
+#endif
+}
+
 /**
  * mono_method_alloc_generic_virtual_thunk:
  * @domain: a domain
@@ -1552,7 +1572,9 @@ mono_method_alloc_generic_virtual_thunk (MonoDomain *domain, int size)
 	generic_virtual_thunks_size += size;
 
 	p = mono_domain_code_reserve (domain, size);
+	unlock_thunk (p);
 	*p = size;
+	lock_thunk (p);
 
 	mono_domain_lock (domain);
 	if (!domain->generic_virtual_thunks)
@@ -1601,15 +1623,24 @@ invalidate_generic_virtual_thunk (MonoDomain *domain, gpointer code)
 		domain->thunk_free_lists [i] = item;
 	}
 
+	unlock_thunk (l);
 	l->next = NULL;
+	lock_thunk (l);
 	if (domain->thunk_free_lists [1]) {
-		domain->thunk_free_lists [1] = domain->thunk_free_lists [1]->next = l;
+		unlock_thunk (domain->thunk_free_lists [1]);
+		domain->thunk_free_lists [1]->next = l;
+		lock_thunk (domain->thunk_free_lists [1]);
+		domain->thunk_free_lists [1] = l;
+		unlock_thunk (domain->thunk_free_lists [0]);
 		domain->thunk_free_lists [0]->length++;
+		lock_thunk (domain->thunk_free_lists [0]);
 	} else {
 		g_assert (!domain->thunk_free_lists [0]);
 
 		domain->thunk_free_lists [0] = domain->thunk_free_lists [1] = l;
+		unlock_thunk (domain->thunk_free_lists [0]);
 		domain->thunk_free_lists [0]->length = 1;
+		lock_thunk (domain->thunk_free_lists [0]);
 	}
 }
 

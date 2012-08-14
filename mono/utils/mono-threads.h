@@ -94,6 +94,10 @@ typedef struct {
 	/*async call machinery, thread MUST be suspended before accessing those fields*/
 	void (*async_target)(void*);
 	void *user_data;
+
+#if defined(TARGET_VITA)
+	arm_ucontext sigctx;
+#endif
 } MonoThreadInfo;
 
 typedef struct {
@@ -154,7 +158,7 @@ THREAD_INFO_TYPE *
 mono_thread_info_attach (void *baseptr) MONO_INTERNAL;
 
 void
-mono_thread_info_dettach (void) MONO_INTERNAL;
+mono_thread_info_detach (void) MONO_INTERNAL;
 
 THREAD_INFO_TYPE *
 mono_thread_info_current (void) MONO_INTERNAL;

@@ -306,6 +306,8 @@ finalizers_for_domain (MonoDomain *domain, MonoObject **out_array, int out_size,
 		return 0;
 	count = 0;
 	SGEN_HASH_TABLE_FOREACH (hash_table, object, dummy) {
+		object = tagget_object_get_object (object);
+
 		if (mono_object_domain (object) == domain) {
 			/* remove and put in out_array */
 			SGEN_HASH_TABLE_FOREACH_REMOVE (TRUE);
@@ -458,7 +460,11 @@ null_links_for_domain (MonoDomain *domain, int generation)
 			if (*link) {
 				*link = NULL;
 				free = FALSE;
-				g_warning ("Disappearing link %p not freed", link);
+				/*
+				 * This can happen if finalizers are not ran, i.e. Environment.Exit ()
+				 * is called from finalizer like in finalizer-abort.cs.
+				 */
+				DEBUG (5, fprintf (gc_debug_file, "Disappearing link %p not freed", link));
 			}
 
 			SGEN_HASH_TABLE_FOREACH_REMOVE (free);

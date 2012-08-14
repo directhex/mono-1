@@ -1068,7 +1068,11 @@ search_sorted_table (VerifyContext *ctx, int table, int column, guint32 coded_to
 
 	base = tinfo->base;
 
+	if (tinfo->rows == 0 || tinfo->row_size == 0)
+		return -1;
+
 	VERIFIER_DEBUG ( printf ("looking token %x table %d col %d rsize %d roff %d\n", coded_token, table, column, locator.col_size, locator.col_offset) );
+
 	res = bsearch (&locator, base, tinfo->rows, tinfo->row_size, token_locator);
 	if (!res)
 		return -1;
@@ -4197,11 +4201,18 @@ mono_verifier_verify_cattr_content (MonoImage *image, MonoMethod *ctor, const gu
 gboolean
 mono_verifier_is_sig_compatible (MonoImage *image, MonoMethod *method, MonoMethodSignature *signature)
 {
+	MonoError error;
 	MonoMethodSignature *original_sig;
 	if (!mono_verifier_is_enabled_for_image (image))
 		return TRUE;
 
-	original_sig = mono_method_signature (method);
+	original_sig = mono_method_signature_checked (method, &error);
+	if (!mono_error_ok (&error)) {
+		// FIXME: How do we propogate the verification error from here
+		mono_error_cleanup (&error);
+		return FALSE;
+	}
+
 	if (original_sig->call_convention == MONO_CALL_VARARG) {
 		if (original_sig->hasthis != signature->hasthis)
 			return FALSE;

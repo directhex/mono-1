@@ -344,7 +344,7 @@ enum {
 	} while (0)
 
 #define MONO_INST_NEW(cfg,dest,op) do {	\
-		(dest) = mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoInst));	\
+		(dest) = (MonoInst *) mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoInst));	\
 		(dest)->opcode = (op);	\
 		(dest)->dreg = -1;			    \
 		MONO_INST_NULLIFY_SREGS ((dest));	    \
@@ -352,7 +352,7 @@ enum {
 	} while (0)
 
 #define MONO_INST_NEW_CALL(cfg,dest,op) do {	\
-		(dest) = mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoCallInst));	\
+		(dest) = (MonoCallInst *) mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoCallInst));	\
 		(dest)->inst.opcode = (op);	\
 		(dest)->inst.dreg = -1;					\
 		MONO_INST_NULLIFY_SREGS (&(dest)->inst);		\
@@ -360,7 +360,7 @@ enum {
 	} while (0)
 
 #define MONO_INST_NEW_CALL_ARG(cfg,dest,op) do {	\
-		(dest) = mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoCallArgParm));	\
+		(dest) = (MonoCallArgParm *) mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoCallArgParm));	\
 		(dest)->ins.opcode = (op);	\
 	} while (0)
 
@@ -771,7 +771,7 @@ struct MonoCallInst {
 	MonoInst *vret_var;
 	gconstpointer fptr;
 	guint stack_usage;
-	guint virtual : 1;
+	guint is_virtual : 1;
 	guint tail_call : 1;
 	/* If this is TRUE, 'fptr' points to a MonoJumpInfo instead of an address. */
 	guint fptr_is_patch : 1;
@@ -792,6 +792,9 @@ struct MonoCallInst {
 #ifdef ENABLE_LLVM
 	LLVMCallInfo *cinfo;
 	int rgctx_arg_reg, imt_arg_reg;
+#endif
+#if defined(TARGET_ARM)
+	GSList *r4_args;
 #endif
 };
 
@@ -1004,6 +1007,48 @@ typedef struct {
 	MonoContext ctx; /* if debugger_invoke is TRUE */
 } MonoLMFExt;
 
+/* Generic sharing */
+typedef enum {
+	MONO_RGCTX_INFO_STATIC_DATA,
+	MONO_RGCTX_INFO_KLASS,
+	MONO_RGCTX_INFO_VTABLE,
+	MONO_RGCTX_INFO_TYPE,
+	MONO_RGCTX_INFO_REFLECTION_TYPE,
+	MONO_RGCTX_INFO_METHOD,
+	MONO_RGCTX_INFO_GENERIC_METHOD_CODE,
+	MONO_RGCTX_INFO_CLASS_FIELD,
+	MONO_RGCTX_INFO_METHOD_RGCTX,
+	MONO_RGCTX_INFO_METHOD_CONTEXT,
+	MONO_RGCTX_INFO_REMOTING_INVOKE_WITH_CHECK,
+	MONO_RGCTX_INFO_METHOD_DELEGATE_CODE,
+	MONO_RGCTX_INFO_CAST_CACHE
+} MonoRgctxInfoType;
+
+typedef struct _MonoRuntimeGenericContextOtherInfoTemplate {
+	MonoRgctxInfoType info_type;
+	gpointer data;
+	struct _MonoRuntimeGenericContextOtherInfoTemplate *next;
+} MonoRuntimeGenericContextOtherInfoTemplate;
+
+typedef struct {
+	MonoClass *next_subclass;
+	MonoRuntimeGenericContextOtherInfoTemplate *other_infos;
+	GSList *method_templates;
+} MonoRuntimeGenericContextTemplate;
+
+typedef struct {
+	MonoVTable *class_vtable; /* must be the first element */
+	MonoGenericInst *method_inst;
+	gpointer infos [MONO_ZERO_LEN_ARRAY];
+} MonoMethodRuntimeGenericContext;
+
+#define MONO_SIZEOF_METHOD_RUNTIME_GENERIC_CONTEXT (sizeof (MonoMethodRuntimeGenericContext) - MONO_ZERO_LEN_ARRAY * SIZEOF_VOID_P)
+
+#define MONO_RGCTX_SLOT_MAKE_RGCTX(i)	(i)
+#define MONO_RGCTX_SLOT_MAKE_MRGCTX(i)	((i) | 0x80000000)
+#define MONO_RGCTX_SLOT_INDEX(s)	((s) & 0x7fffffff)
+#define MONO_RGCTX_SLOT_IS_MRGCTX(s)	(((s) & 0x80000000) ? TRUE : FALSE)
+
 typedef enum {
 #define PATCH_INFO(a,b) MONO_PATCH_INFO_ ## a,
 #include "patch-info.h"
@@ -1073,7 +1118,7 @@ struct MonoJumpInfoRgctxEntry {
 	MonoMethod *method;
 	gboolean in_mrgctx;
 	MonoJumpInfo *data; /* describes the data to be loaded */
-	int info_type;
+	MonoRgctxInfoType info_type;
 };
 
 typedef enum {
@@ -1429,6 +1474,11 @@ typedef struct {
 	gint32 cas_linkdemand;
 	gint32 cas_demand_generation;
 	gint32 generic_virtual_invocations;
+	gint64 compilation_time;
+	gint64 fastest_compiled_method_time;
+	gint64 slowest_compiled_method_time;
+	char *fastest_compiled_method;
+	char *slowest_compiled_method;
 	int methods_with_llvm;
 	int methods_without_llvm;
 	char *max_ratio_method;
@@ -1783,7 +1833,7 @@ gboolean mono_compile_is_broken (MonoCompile *cfg, MonoMethod *method, gboolean 
 MonoInst *mono_get_got_var (MonoCompile *cfg) MONO_INTERNAL;
 void      mono_add_seq_point (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst *ins, int native_offset) MONO_INTERNAL;
 MonoInst* mono_emit_jit_icall (MonoCompile *cfg, gconstpointer func, MonoInst **args) MONO_INTERNAL;
-MonoInst* mono_emit_method_call (MonoCompile *cfg, MonoMethod *method, MonoInst **args, MonoInst *this) MONO_INTERNAL;
+MonoInst* mono_emit_method_call (MonoCompile *cfg, MonoMethod *method, MonoInst **args, MonoInst *thiz) MONO_INTERNAL;
 void      mono_create_helper_signatures (void) MONO_INTERNAL;
 
 gboolean  mini_class_is_system_array (MonoClass *klass) MONO_INTERNAL;
@@ -2114,6 +2164,10 @@ mono_arch_setup_async_callback (MonoContext *ctx, void (*async_cb)(void *fun), g
 gboolean
 mono_thread_state_init_from_handle (MonoThreadUnwindState *tctx, MonoNativeThreadId thread_id, MonoNativeThreadHandle thread_handle) MONO_INTERNAL;
 
+#ifdef MONO_ARCH_USES_EXCEPTION_THREAD
+void
+mono_arch_handle_exception_on_thread (pthread_t tid, arm_ucontext *ctx) MONO_INTERNAL;
+#endif
 
 /* Exception handling */
 typedef gboolean (*MonoJitStackWalk)            (StackFrameInfo *frame, MonoContext *ctx, gpointer data);
@@ -2235,7 +2289,7 @@ void
 mono_set_generic_sharing_supported (gboolean supported) MONO_INTERNAL;
 
 gboolean
-mono_class_generic_sharing_enabled (MonoClass *class) MONO_INTERNAL;
+mono_class_generic_sharing_enabled (MonoClass *klass) MONO_INTERNAL;
 
 gpointer
 mono_class_fill_runtime_generic_context (MonoVTable *class_vtable, guint32 slot) MONO_INTERNAL;
@@ -2254,7 +2308,7 @@ mono_class_rgctx_get_array_size (int n, gboolean mrgctx) MONO_INTERNAL;
 
 guint32
 mono_method_lookup_or_register_other_info (MonoMethod *method, gboolean in_mrgctx, gpointer data,
-	int info_type, MonoGenericContext *generic_context) MONO_INTERNAL;
+	MonoRgctxInfoType info_type, MonoGenericContext *generic_context) MONO_INTERNAL;
 
 MonoGenericContext
 mono_method_construct_object_context (MonoMethod *method) MONO_INTERNAL;
@@ -2266,7 +2320,7 @@ int
 mono_generic_context_check_used (MonoGenericContext *context) MONO_INTERNAL;
 
 int
-mono_class_check_context_used (MonoClass *class) MONO_INTERNAL;
+mono_class_check_context_used (MonoClass *klass) MONO_INTERNAL;
 
 gboolean
 mono_generic_context_is_sharable (MonoGenericContext *context, gboolean allow_type_vars) MONO_INTERNAL;
@@ -2301,8 +2355,8 @@ gpointer mono_helper_get_rgctx_other_ptr (MonoClass *caller_class, MonoVTable *v
 void mono_generic_sharing_init (void) MONO_INTERNAL;
 void mono_generic_sharing_cleanup (void) MONO_INTERNAL;
 
-MonoClass* mini_class_get_container_class (MonoClass *class) MONO_INTERNAL;
-MonoGenericContext* mini_class_get_context (MonoClass *class) MONO_INTERNAL;
+MonoClass* mini_class_get_container_class (MonoClass *klass) MONO_INTERNAL;
+MonoGenericContext* mini_class_get_context (MonoClass *klass) MONO_INTERNAL;
 
 MonoType* mini_get_basic_type_from_generic (MonoGenericSharingContext *gsctx, MonoType *type) MONO_INTERNAL;
 MonoType* mini_type_get_underlying_type (MonoGenericSharingContext *gsctx, MonoType *type) MONO_INTERNAL;

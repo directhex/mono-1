@@ -2,10 +2,12 @@
  * file-io.h: File IO internal calls
  *
  * Authors:
+ *  Geoff Norton (geofF_norton@playstation.sony.com)
  *	Dick Porter (dick@ximian.com)
  *	Dan Lewis (dihlewis@yahoo.co.uk)
  *
  * (C) 2001 Ximian, Inc.
+ * (C) 2012 SCEA, LLC
  */
 
 #ifndef _MONO_METADATA_FILEIO_H_
@@ -19,6 +21,11 @@
 #include <mono/utils/mono-compiler.h>
 
 G_BEGIN_DECLS
+
+typedef enum {
+	MONO_IO_MODE_NATIVE,
+	MONO_IO_MODE_PSS
+} MonoIoMode;
 
 /* This is a copy of System.IO.FileAccess */
 typedef enum {

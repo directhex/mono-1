@@ -196,6 +196,49 @@ namespace System.IO {
 			return new String (copy);
 		}
 
+		/*
+		 * Returns the index of the last VolumeSeparatorChar
+		 * before the first other PathSeparatorChars.
+		 */
+		static int VolumeSeparatorIndex (string path)
+		{
+			if (dirEqualsVolume)
+				return -1;
+
+			int lastIndex = -1;
+			for (;;) {
+				int index = path.IndexOfAny (PathSeparatorChars, lastIndex + 1);
+				if (index < 0)
+					break;
+				if (path [index] != VolumeSeparatorChar)
+					break;
+				lastIndex = index;
+			}
+			if (lastIndex < 0)
+				return -1;
+			if (lastIndex == 0)
+				throw new ArgumentException ("Paths cannot contain with the volume separator");
+			if (Environment.IsRunningOnWindows && lastIndex != 1)
+				throw new ArgumentException ("The volume separator must be the second character");
+			return lastIndex;
+		}
+
+		static string Volume (string path)
+		{
+			int index = VolumeSeparatorIndex (path);
+			if (index < 0)
+				return null;
+			return path.Substring (0, index);
+		}
+
+		static string PathWithoutVolume (string path)
+		{
+			int index = VolumeSeparatorIndex (path);
+			if (index < 0)
+				return path;
+			return path.Substring (index + 1);
+		}
+
 		public static string GetDirectoryName (string path)
 		{
 			// LAMESPEC: For empty string MS docs say both
@@ -217,12 +260,14 @@ namespace System.IO {
 				nLast++;
 
 			if (nLast > 0) {
+				if (path [nLast] == VolumeSeparatorChar)
+					nLast ++;
 				string ret = path.Substring (0, nLast);
 				int l = ret.Length;
 
-				if (l >= 2 && DirectorySeparatorChar == '\\' && ret [l - 1] == VolumeSeparatorChar)
+				if (l >= 2 && VolumeSeparatorIndex (ret) == l - 1) {
 					return ret + DirectorySeparatorChar;
-				else {
+				} else {
 					//
 					// Important: do not use CanonicalizePath here, use
 					// the custom CleanPath here, as this should not
@@ -396,7 +441,12 @@ namespace System.IO {
 			
 			if (DirectorySeparatorChar == '/') {
 				// UNIX
-				return IsDsc (path [0]) ? DirectorySeparatorStr : String.Empty;
+				string volume = Volume (path);
+				path = PathWithoutVolume (path);
+				path = path.Length > 0 && IsDsc (path [0]) ? DirectorySeparatorStr : String.Empty;
+				if (volume != null)
+					return volume + VolumeSeparatorChar + path;
+				return path;
 			} else {
 				// Windows
 				int len = 2;
@@ -499,10 +549,11 @@ namespace System.IO {
 			if (path.IndexOfAny (InvalidPathChars) != -1)
 				throw new ArgumentException ("Illegal characters in path.");
 
+			if (VolumeSeparatorIndex (path) >= 0)
+				return true;
+
 			char c = path [0];
-			return (c == DirectorySeparatorChar 	||
-				c == AltDirectorySeparatorChar 	||
-				(!dirEqualsVolume && path.Length > 1 && path [1] == VolumeSeparatorChar));
+			return c == DirectorySeparatorChar || c == AltDirectorySeparatorChar;
 		}
 
 		public static char[] GetInvalidFileNameChars ()

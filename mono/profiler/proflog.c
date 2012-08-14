@@ -3,8 +3,10 @@
  *
  * Author:
  *   Paolo Molaro (lupus@ximian.com)
+ *   Geoff Norton (Geoff_Norton@playstation.sony.com)
  *
  * Copyright 2010 Novell, Inc (http://www.novell.com)
+ * Copyright 2011 Sony Computer Entertainment America, LLC
  */
 
 #include <config.h>
@@ -12,15 +14,18 @@
 #include <mono/metadata/threads.h>
 #include <mono/metadata/mono-gc.h>
 #include <mono/metadata/debug-helpers.h>
+#include <mono/utils/mono-mmap.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #include <errno.h>
-#if defined(HOST_WIN32) || defined(DISABLE_SOCKETS)
+#if defined(DISABLE_SOCKETS)
 #define DISABLE_HELPER_THREAD 1
 #endif
 
@@ -38,20 +43,37 @@
 #endif
 
 #ifndef DISABLE_HELPER_THREAD
+#if HOST_WIN32
+#include <WinSock2.h>
+#else
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #endif
+#endif
 
 #ifdef HOST_WIN32
+#include <io.h>
 #include <windows.h>
+#include <DbgHelp.h>
+#pragma comment(lib, "DbgHelp.lib")
 #else
 #include <pthread.h>
 #endif
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
+
+#if defined (_MSC_VER)
+#define snprintf _snprintf
+#define popen _popen
+#define pclose _pclose
+#define unlink _unlink
+#define write _write
+#define read _read
+#define clone _close
 #endif
 
 #include "utils.c"
@@ -65,7 +87,24 @@
 #if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
 #include "perf_event.h"
 #define USE_PERF_EVENTS 1
-static int read_perf_mmap (MonoProfiler* prof);
+#define USE_LINUX_PERF 1
+#endif
+
+#if defined(HOST_WIN32)
+/*
+ * TODO: Get the performance counters we need setup
+ */
+#if 0
+#include <pdh.h>
+#include <pdhmsg.h>
+#pragma comment(lib, "pdh.lib")
+#define USE_PERF_EVENTS 1
+#define USE_WINDOWS_PERF 1
+#endif
+#endif
+
+#ifdef USE_PERF_EVENTS
+static int read_perf_counters (MonoProfiler* prof);
 #endif
 
 #define BUFFER_SIZE (4096 * 16)
@@ -343,13 +382,18 @@ struct _MonoProfiler {
 #if defined (HAVE_SYS_ZLIB)
 	gzFile *gzfile;
 #endif
-	uint64_t startup_time;
 	int pipe_output;
+	uint64_t startup_time;
 	int last_gc_gen_started;
 	int command_port;
 	int server_socket;
+#ifdef HOST_WIN32
+	HANDLE helper_thread;
+	DWORD helper_thread_id;
+	HANDLE sample_evt;
+	HANDLE shutdown_evt;
+#else
 	int pipes [2];
-#ifndef HOST_WIN32
 	pthread_t helper_thread;
 #endif
 	BinaryObject *binary_objects;
@@ -358,7 +402,9 @@ struct _MonoProfiler {
 #ifdef HOST_WIN32
 #define TLS_SET(x,y) TlsSetValue(x, y)
 #define TLS_GET(x) ((LogBuffer *) TlsGetValue(x))
+#ifndef TLS_INIT
 #define TLS_INIT(x) x = TlsAlloc ()
+#endif
 static int tlsbuffer;
 #elif HAVE_KW_THREAD
 #define TLS_SET(x,y) x = y
@@ -439,7 +485,7 @@ emit_byte (LogBuffer *logbuffer, int value)
 }
 
 static void
-emit_value (LogBuffer *logbuffer, int value)
+emit_value (LogBuffer *logbuffer, uint64_t value)
 {
 	encode_uleb128 (value, logbuffer->data, &logbuffer->data);
 	assert (logbuffer->data <= logbuffer->data_end);
@@ -449,12 +495,12 @@ static void
 emit_time (LogBuffer *logbuffer, uint64_t value)
 {
 	uint64_t tdiff = value - logbuffer->last_time;
-	unsigned char *p;
+	//unsigned char *p;
 	if (value < logbuffer->last_time)
 		printf ("time went backwards\n");
 	//if (tdiff > 1000000)
 	//	printf ("large time offset: %llu\n", tdiff);
-	p = logbuffer->data;
+	//p = logbuffer->data;
 	encode_uleb128 (tdiff, logbuffer->data, &logbuffer->data);
 	/*if (tdiff != decode_uleb128 (p, &p))
 		printf ("incorrect encoding: %llu\n", tdiff);*/
@@ -465,7 +511,7 @@ emit_time (LogBuffer *logbuffer, uint64_t value)
 static void
 emit_svalue (LogBuffer *logbuffer, int64_t value)
 {
-	encode_sleb128 (value, logbuffer->data, &logbuffer->data);
+	encode_sleb128 ((intptr_t) value, logbuffer->data, &logbuffer->data);
 	assert (logbuffer->data <= logbuffer->data_end);
 }
 
@@ -533,7 +579,7 @@ write_int64 (char *buf, int64_t value)
 {
 	int i;
 	for (i = 0; i < 8; ++i) {
-		buf [i] = value;
+		buf [i] = (char) value;
 		value >>= 8;
 	}
 	return buf + 8;
@@ -625,7 +671,7 @@ safe_dump (MonoProfiler *profiler, LogBuffer *logbuffer)
 static int
 gc_reference (MonoObject *obj, MonoClass *klass, uintptr_t size, uintptr_t num, MonoObject **refs, uintptr_t *offsets, void *data)
 {
-	int i;
+	unsigned int i;
 	uintptr_t last_offset = 0;
 	//const char *name = mono_class_get_name (klass);
 	LogBuffer *logbuffer = ensure_logbuf (20 + num * 8);
@@ -1156,11 +1202,17 @@ cmp_exchange (volatile void **dest, void *exch, void *comp)
 */
 
 static void
-mono_sample_hit (MonoProfiler *profiler, unsigned char *ip, void *context)
+mono_sample_hit (MonoProfiler *profiler, unsigned char *ip, void *tid, void *context)
 {
 	StatBuffer *sbuf;
 	uint64_t now;
 	uintptr_t *data, *new_data, *old_data;
+
+#if HOST_WIN32
+	if ((DWORD) tid == profiler->helper_thread_id)
+		return;
+#endif
+
 	if (in_shutdown)
 		return;
 	now = current_time ();
@@ -1184,7 +1236,11 @@ mono_sample_hit (MonoProfiler *profiler, unsigned char *ip, void *context)
 		/* notify the helper thread */
 		if (sbuf->next->next) {
 			char c = 0;
+#if HOST_WIN32
+			SetEvent (profiler->sample_evt);
+#else
 			write (profiler->pipes [1], &c, 1);
+#endif
 			if (do_debug)
 				write (2, "notify\n", 7);
 		}
@@ -1198,7 +1254,7 @@ mono_sample_hit (MonoProfiler *profiler, unsigned char *ip, void *context)
 		return; /* lost event */
 	old_data [0] = 1 | (sample_type << 16);
 	old_data [1] = thread_id ();
-	old_data [2] = (now - profiler->startup_time) / 10000;
+	old_data [2] = (uintptr_t)(now - profiler->startup_time) / 10000;
 	old_data [3] = (uintptr_t)ip;
 }
 
@@ -1455,6 +1511,49 @@ load_binaries (MonoProfiler *prof)
 	dl_iterate_phdr (elf_dl_callback, prof);
 	return 1;
 }
+#elif HOST_WIN32
+BOOL CALLBACK
+EnumSymProc (PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)
+{
+	//printf ("\tsymbol: %s at %d\n", pSymInfo->Name, pSymInfo->Address);
+	dump_usym (pSymInfo->Name, pSymInfo->Address, pSymInfo->Size);
+	return TRUE;
+}
+
+BOOL CALLBACK
+EnumLoadedModulesProc (PCSTR ModuleName, ULONG ModuleBase, ULONG ModuleSize, PVOID UserContext)
+{
+	//printf ("Module: %s %p %p\n", ModuleName, ModuleBase, ModuleSize);
+	dump_ubin (ModuleName, ModuleBase, 0, ModuleSize);
+
+	if (!SymEnumSymbols (GetCurrentProcess (), ModuleBase, "*!*", EnumSymProc, UserContext)) {
+		printf ("SymEnumSymbols: %d\n", GetLastError ());
+	}
+	return TRUE;
+}
+
+static int
+load_binaries (MonoProfiler *prof)
+{
+	HANDLE proc;
+
+	proc = GetCurrentProcess ();
+
+	SymSetOptions (SymGetOptions () | SYMOPT_UNDNAME);
+
+	if (!SymInitialize (proc, NULL, TRUE)) {
+		return 0;
+	}
+
+	if (!EnumerateLoadedModules (proc, EnumLoadedModulesProc, prof)) {
+		SymCleanup (proc);
+		return 0;
+	}
+
+	SymCleanup (proc);
+	return 1;
+}
+
 #else
 static int
 load_binaries (MonoProfiler *prof)
@@ -1549,7 +1648,11 @@ dump_sample_hits (MonoProfiler *prof, StatBuffer *sbuf, int recurse)
 	dump_unmanaged_coderefs (prof);
 }
 
-#if USE_PERF_EVENTS
+#ifdef USE_PERF_EVENTS
+static int perf_enabled = FALSE;
+#endif
+
+#if USE_LINUX_PERF
 #ifndef __NR_perf_event_open
 #define __NR_perf_event_open 241
 #endif
@@ -1639,7 +1742,7 @@ dump_perf_hits (MonoProfiler *prof, void *buf, int size)
 
 /* read events from the ring buffer */
 static int
-read_perf_mmap (MonoProfiler* prof)
+read_perf_counters (MonoProfiler* prof)
 {
 	unsigned char *buf;
 	unsigned char *data = (unsigned char*)mmap_base + getpagesize ();
@@ -1721,10 +1824,57 @@ setup_perf_event (void)
 		perf_fd = -1;
 		return 0;
 	}
+	perf_enabled = TRUE;
 	return 1;
 }
 
-#endif /* USE_PERF_EVENTS */
+#endif /* USE_LINUX_PERF */
+
+#if USE_WINDOWS_PERF
+HQUERY hQuery = NULL;
+PDH_STATUS pdhStatus;
+HCOUNTER hCounter;
+
+static int
+read_perf_counters (MonoProfiler* prof)
+{
+	SYSTEMTIME systemTime;
+	PDH_FMT_COUNTERVALUE counterValue;
+	DWORD counterType;
+
+	GetLocalTime (&systemTime);
+
+	pdhStatus = PdhCollectQueryData (hQuery);
+	if (pdhStatus != ERROR_SUCCESS)
+		return 0;
+
+	printf("\n\"%2.2d/%2.2d/%4.4d %2.2d:%2.2d:%2.2d.%3.3d\"", systemTime.wMonth, systemTime.wDay, systemTime.wYear, systemTime.wHour, systemTime.wMinute, systemTime.wSecond, systemTime.wMilliseconds);
+
+	pdhStatus = PdhGetFormattedCounterValue (hCounter, PDH_FMT_DOUBLE, &counterType, &counterValue);
+
+	printf (",\"%.20g\"", counterValue.doubleValue);
+
+	return 0;
+}
+
+static int
+setup_perf_event (void)
+{
+	pdhStatus = PdhOpenQuery (NULL, 0, &hQuery);
+	if (pdhStatus != ERROR_SUCCESS)
+		return 0;
+
+	pdhStatus = PdhAddCounter (hQuery, L"\\Processor(0)\\% Processor Time", 0, &hCounter);
+	if (pdhStatus != ERROR_SUCCESS) {
+		PdhCloseLog (hQuery, 0);
+		return 0;
+	}
+
+	perf_enabled = TRUE;
+
+	return 1;
+}
+#endif
 
 static void
 log_shutdown (MonoProfiler *prof)
@@ -1734,13 +1884,21 @@ log_shutdown (MonoProfiler *prof)
 	if (prof->command_port) {
 		char c = 1;
 		void *res;
+#if HOST_WIN32
+		SetEvent (prof->shutdown_evt);
+#else
 		write (prof->pipes [1], &c, 1);
+#endif
+#if HOST_WIN32
+		WaitForSingleObject (prof->helper_thread, INFINITE);
+#else
 		pthread_join (prof->helper_thread, &res);
+#endif
 	}
 #endif
 #if USE_PERF_EVENTS
-	if (page_desc)
-		read_perf_mmap (prof);
+	if (perf_enabled)
+		read_perf_counters (prof);
 #endif
 	dump_sample_hits (prof, prof->stat_buffers, 1);
 	take_lock ();
@@ -1822,15 +1980,97 @@ new_filename (const char* filename)
 static void*
 helper_thread (void* arg)
 {
-	MonoProfiler* prof = arg;
+	MonoProfiler* prof = (MonoProfiler *) arg;
 	int command_socket;
 	int len;
 	char buf [64];
 	MonoThread *thread = NULL;
 
+#if HOST_WIN32
+	prof->helper_thread_id = GetCurrentThreadId ();
+#endif
+
 	//fprintf (stderr, "Server listening\n");
 	command_socket = -1;
 	while (1) {
+		// FIXME: This duplicates a lot of code with the linux codepath, this should be refactored
+		// so the code can be shared better
+#if HOST_WIN32
+		DWORD res;
+		HANDLE lpHandles[4];
+		DWORD nCount = 0;
+
+		lpHandles [0] = prof->server_socket; nCount++;
+		lpHandles [1] = prof->sample_evt; nCount++;
+		lpHandles [2] = prof->shutdown_evt; nCount++;
+
+		if (command_socket >= 0) {
+			lpHandles [3] = command_socket; nCount++;
+		}
+		res = WaitForMultipleObjectsEx (nCount, lpHandles, FALSE, 1000, TRUE);
+
+		switch (res)  {
+			case WAIT_OBJECT_0 + 0:
+				command_socket = accept (prof->server_socket, NULL, NULL);
+				continue;
+			case WAIT_OBJECT_0 + 1: {
+				StatBuffer *sbuf = prof->stat_buffers->next->next;
+				prof->stat_buffers->next->next = NULL;
+				if (do_debug)
+					fprintf (stderr, "stat buffer dump\n");
+				dump_sample_hits (prof, sbuf, 1);
+				free_buffer (sbuf, sbuf->size);
+				continue;
+			}
+			case WAIT_OBJECT_0 + 2: {
+				if (thread)
+					mono_thread_detach (thread);
+				if (do_debug)
+					fprintf (stderr, "helper shutdown\n");
+#if USE_PERF_EVENTS
+				if (perf_enabled)
+					read_perf_counters (prof);
+#endif
+				safe_dump (prof, ensure_logbuf (0));
+				return NULL;
+			}
+			case WAIT_OBJECT_0 + 3: {
+				len = read (command_socket, buf, sizeof (buf) - 1);
+				if (len < 0)
+					continue;
+				if (len == 0) {
+					close (command_socket);
+					command_socket = -1;
+					continue;
+				}
+				buf [len] = 0;
+				if (strcmp (buf, "heapshot\n") == 0) {
+					heapshot_requested = 1;
+					//fprintf (stderr, "perform heapshot\n");
+					if (runtime_inited && !thread) {
+						thread = mono_thread_attach (mono_get_root_domain ());
+						/*fprintf (stderr, "attached\n");*/
+					}
+					if (thread) {
+						process_requests (prof);
+						mono_thread_detach (thread);
+						thread = NULL;
+					}
+				}
+				continue;
+			}
+			default:
+				break;
+		}
+		// FIXME: This should be alerted when we have new perfcounters to read instead of on a timer
+#if USE_PERF_EVENTS
+		if (perf_enabled) {
+			read_perf_counters (prof);
+			safe_dump (prof, ensure_logbuf (0));
+		}
+#endif
+#else
+
 		fd_set rfds;
 		struct timeval tv;
 		int max_fd = -1;
@@ -1845,7 +2085,7 @@ helper_thread (void* arg)
 			if (max_fd < command_socket)
 				max_fd = command_socket;
 		}
-#if USE_PERF_EVENTS
+#if USE_LINUX_PERF
 		if (perf_fd >= 0) {
 			FD_SET (perf_fd, &rfds);
 			if (max_fd < perf_fd)
@@ -1873,15 +2113,15 @@ helper_thread (void* arg)
 			if (do_debug)
 				fprintf (stderr, "helper shutdown\n");
 #if USE_PERF_EVENTS
-			if (perf_fd >= 0)
-				read_perf_mmap (prof);
+			if (perf_enabled)
+				read_perf_counters (prof);
 #endif
 			safe_dump (prof, ensure_logbuf (0));
 			return NULL;
 		}
-#if USE_PERF_EVENTS
+#if USE_LINUX_PERF
 		if (perf_fd >= 0 && FD_ISSET (perf_fd, &rfds)) {
-			read_perf_mmap (prof);
+			read_perf_counters (prof);
 			safe_dump (prof, ensure_logbuf (0));
 		}
 #endif
@@ -1917,6 +2157,7 @@ helper_thread (void* arg)
 		if (command_socket < 0)
 			continue;
 		//fprintf (stderr, "Accepted connection\n");
+#endif
 	}
 	return NULL;
 }
@@ -1924,15 +2165,36 @@ helper_thread (void* arg)
 static int
 start_helper_thread (MonoProfiler* prof)
 {
+#ifndef DISABLE_SOCKETS
 	struct sockaddr_in server_address;
+#endif
 	int r;
-	socklen_t slen;
-	if (pipe (prof->pipes) < 0) {
+	int slen;
+#if HOST_WIN32
+	prof->sample_evt = CreateEvent (NULL, FALSE, FALSE, NULL);
+	if (prof->sample_evt == NULL) {
+		fprintf (stderr, "Cannot create sample event: %d\n", GetLastError ());
+		return 0;
+	}
+
+	prof->shutdown_evt = CreateEvent (NULL, FALSE, FALSE, NULL);
+	if (prof->shutdown_evt == NULL) {
+		fprintf (stderr, "Cannot create shutdown event: %d\n", GetLastError ());
+		return 0;
+	}
+#else
+	r = pipe (prof->pipes);
+
+	if (r < 0) {
 		fprintf (stderr, "Cannot create pipe\n");
 		return 0;
 	}
+#endif
+
+#ifndef DISABLE_SOCKETS
 	prof->server_socket = socket (PF_INET, SOCK_STREAM, 0);
 	if (prof->server_socket < 0) {
+		fprintf (stderr, "%d", WSAGetLastError ());
 		fprintf (stderr, "Cannot create server socket\n");
 		return 0;
 	}
@@ -1954,12 +2216,23 @@ start_helper_thread (MonoProfiler* prof)
 		prof->command_port = ntohs (server_address.sin_port);
 		/*fprintf (stderr, "Assigned server port: %d\n", prof->command_port);*/
 	}
+#endif
 
-	r = pthread_create (&prof->helper_thread, NULL, helper_thread, prof);
-	if (r) {
+#if HOST_WIN32
+	prof->helper_thread = CreateThread (NULL, 0, (LPTHREAD_START_ROUTINE) helper_thread, prof, 0, NULL);
+	if (prof->helper_thread == NULL) {
 		close (prof->server_socket);
 		return 0;
 	}
+#else
+	r = pthread_create (&prof->helper_thread, NULL, helper_thread, prof);
+	if (r) {
+#ifndef DISABLE_SOCKETS
+		close (prof->server_socket);
+#endif
+		return 0;
+	}
+#endif
 	return 1;
 }
 #endif
@@ -2021,7 +2294,7 @@ create_profiler (const char *filename)
 #if USE_PERF_EVENTS
 	if (sample_type && !do_mono_sample)
 		need_helper_thread = setup_perf_event ();
-	if (perf_fd < 0) {
+	if (!perf_enabled) {
 		/* FIXME: warn if different freq or sample type */
 		do_mono_sample = 1;
 	}
@@ -2212,6 +2485,12 @@ mono_profiler_startup (const char *desc)
 		MONO_PROFILE_GC_MOVES|MONO_PROFILE_CLASS_EVENTS|MONO_PROFILE_THREADS|
 		MONO_PROFILE_ENTER_LEAVE|MONO_PROFILE_JIT_COMPILATION|MONO_PROFILE_EXCEPTIONS|
 		MONO_PROFILE_MONITOR_EVENTS|MONO_PROFILE_MODULE_EVENTS|MONO_PROFILE_GC_ROOTS;
+
+#if HOST_WIN32
+	WSADATA wsaData;
+
+	WSAStartup (MAKEWORD(2, 2), &wsaData);
+#endif
 
 	p = desc;
 	if (strncmp (p, "log", 3))

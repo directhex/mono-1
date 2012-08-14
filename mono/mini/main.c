@@ -1,8 +1,11 @@
 #include <config.h>
 #include "mini.h"
-#ifndef HOST_WIN32
+#if !defined(HOST_WIN32) && !defined(TARGET_VITA)
 #include "buildver.h"
 #endif
+
+
+unsigned int sceLibcHeapSize = 16*1024*1024;
 
 /*
  * If the MONO_ENV_OPTIONS environment variable is set, it uses this as a
@@ -92,9 +95,10 @@ main ()
 int
 main (int argc, char* argv[])
 {
-	mono_build_date = build_date;
-	
-	return mono_main_with_options (argc, argv);
+	mono_build_date = "00/00/00";
+
+	int ret = mono_main_with_options (argc, argv);
+	return ret;
 }
 
 #endif

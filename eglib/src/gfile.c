@@ -117,14 +117,19 @@ g_file_set_contents (const gchar *filename, const gchar *contents, gssize length
 	const char *name;
 	char *path;
 	FILE *fp;
-	
-	if (!(name = strrchr (filename, G_DIR_SEPARATOR)))
+	int res;
+
+	name = strrchr (filename, G_DIR_SEPARATOR);
+
+	if (!name)
 		name = filename;
 	else
 		name++;
 	
 	path = g_strdup_printf (TMP_FILE_FORMAT, name - filename, filename, name);
-	if (!(fp = fopen (path, "wb"))) {
+	fp = fopen (path, "wb");
+
+	if (!fp) {
 		g_set_error (err, G_FILE_ERROR, g_file_error_from_errno (errno), "%s", g_strerror (errno));
 		g_free (path);
 		return FALSE;
@@ -133,7 +138,9 @@ g_file_set_contents (const gchar *filename, const gchar *contents, gssize length
 	if (length < 0)
 		length = strlen (contents);
 	
-	if (fwrite (contents, 1, length, fp) < length) {
+	res = fwrite (contents, 1, length, fp);
+
+	if (res < 0 || (gssize) res < length) {
 		g_set_error (err, G_FILE_ERROR, g_file_error_from_errno (ferror (fp)), "%s", g_strerror (ferror (fp)));
 		g_unlink (path);
 		g_free (path);

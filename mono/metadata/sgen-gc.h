@@ -2,6 +2,7 @@
  * Copyright 2001-2003 Ximian, Inc
  * Copyright 2003-2010 Novell, Inc.
  * Copyright 2011 Xamarin Inc (http://www.xamarin.com)
+ * Copyright 2011 SCEA LLC (http://us.playstation.com)
  * 
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -30,11 +31,19 @@
 
 #ifdef HAVE_SGEN_GC
 
+#if defined(_MSC_VER)
+  #define SGEN_SIZE_T_SPECIFIER "%Id"
+#else
+  #define SGEN_SIZE_T_SPECIFIER "%zd"
+#endif
+
 typedef struct _SgenThreadInfo SgenThreadInfo;
 #define THREAD_INFO_TYPE SgenThreadInfo
 
 #include <glib.h>
+#ifdef HAVE_PTHREAD_H
 #include <pthread.h>
+#endif
 #include <signal.h>
 #include <mono/utils/mono-compiler.h>
 #include <mono/utils/mono-threads.h>
@@ -62,7 +71,7 @@ typedef struct _SgenThreadInfo SgenThreadInfo;
 
 //#define SGEN_BINARY_PROTOCOL
 
-#define SGEN_MAX_DEBUG_LEVEL 2
+#define SGEN_MAX_DEBUG_LEVEL 9
 
 #define GC_BITS_PER_WORD (sizeof (mword) * 8)
 
@@ -112,6 +121,7 @@ struct _SgenThreadInfo {
 	volatile int in_critical_region;
 	gboolean doing_handshake;
 	gboolean thread_is_dying;
+	gboolean gc_disabled;
 	void *stack_end;
 	void *stack_start;
 	void *stack_start_limit;
@@ -138,6 +148,10 @@ struct _SgenThreadInfo {
 	gpointer regs[ARCH_NUM_REGS];	    /* ditto */
 #endif
 	gpointer *stopped_regs;	    /* ditto */
+#endif
+
+#ifdef TARGET_VITA
+	gpointer regs [ARCH_NUM_REGS];	    /* ditto */
 #endif
 
 #ifndef HAVE_KW_THREAD
@@ -267,7 +281,7 @@ extern long long stat_objects_copied_major;
 #define HEAVY_STAT(x)
 #endif
 
-#define DEBUG(level,a) do {if (G_UNLIKELY ((level) <= SGEN_MAX_DEBUG_LEVEL && (level) <= gc_debug_level)) a; fflush (gc_debug_file); } while (0)
+#define DEBUG(level,a) do {if (G_UNLIKELY ((level) <= SGEN_MAX_DEBUG_LEVEL && (level) <= gc_debug_level)) { a; fflush (gc_debug_file); } } while (0)
 
 extern int gc_debug_level;
 extern FILE* gc_debug_file;
@@ -608,6 +622,9 @@ void* mono_sgen_alloc_os_memory (size_t size, int activate) MONO_INTERNAL;
 void* mono_sgen_alloc_os_memory_aligned (mword size, mword alignment, gboolean activate) MONO_INTERNAL;
 void mono_sgen_free_os_memory (void *addr, size_t size) MONO_INTERNAL;
 
+void mono_sgen_gc_lock (void) MONO_INTERNAL;
+void mono_sgen_gc_unlock (void) MONO_INTERNAL;
+
 int mono_sgen_thread_handshake (BOOL suspend) MONO_INTERNAL;
 gboolean mono_sgen_suspend_thread (SgenThreadInfo *info) MONO_INTERNAL;
 gboolean mono_sgen_resume_thread (SgenThreadInfo *info) MONO_INTERNAL;
@@ -652,6 +669,7 @@ enum {
 	INTERNAL_MEM_WORKER_DATA,
 	INTERNAL_MEM_BRIDGE_DATA,
 	INTERNAL_MEM_JOB_QUEUE_ENTRY,
+	INTERNAL_MEM_TOGGLEREF_DATA,
 	INTERNAL_MEM_MAX
 };
 
@@ -826,11 +844,20 @@ const char* mono_sgen_safe_name (void* obj) MONO_INTERNAL;
 gboolean mono_sgen_object_is_live (void *obj) MONO_INTERNAL;
 
 gboolean mono_sgen_need_bridge_processing (void) MONO_INTERNAL;
-void mono_sgen_bridge_processing_start (int num_objs, MonoObject **objs) MONO_INTERNAL;
-void mono_sgen_bridge_processing_finish (int num_objs, MonoObject **objs) MONO_INTERNAL;
-void mono_sgen_register_test_bridge_callbacks (void) MONO_INTERNAL;
+void mono_sgen_bridge_processing_register_objects (int num_objs, MonoObject **objs) MONO_INTERNAL;
+void mono_sgen_bridge_processing_stw_step (void) MONO_INTERNAL;
+void mono_sgen_bridge_processing_finish (void) MONO_INTERNAL;
+void mono_sgen_register_test_bridge_callbacks (const char *bridge_class_name) MONO_INTERNAL;
 gboolean mono_sgen_is_bridge_object (MonoObject *obj) MONO_INTERNAL;
 void mono_sgen_mark_bridge_object (MonoObject *obj) MONO_INTERNAL;
+
+void mono_sgen_scan_togglerefs (CopyOrMarkObjectFunc copy_func, char *start, char *end, SgenGrayQueue *queue) MONO_INTERNAL;
+void mono_sgen_process_togglerefs (void) MONO_INTERNAL;
+
+
+gboolean mono_sgen_gc_is_object_ready_for_finalization (void *object) MONO_INTERNAL;
+void mono_sgen_gc_lock (void) MONO_INTERNAL;
+void mono_sgen_gc_unlock (void) MONO_INTERNAL;
 
 enum {
 	SPACE_MAJOR,
@@ -921,32 +948,27 @@ void mono_sgen_hash_table_clean (SgenHashTable *table) MONO_INTERNAL;
 #define SGEN_HASH_TABLE_FOREACH(h,k,v) do {				\
 		SgenHashTable *__hash_table = (h);			\
 		SgenHashTableEntry **__table = __hash_table->table;	\
-		SgenHashTableEntry *__entry, *__prev;			\
 		guint __i;						\
 		for (__i = 0; __i < (h)->size; ++__i) {			\
-			__prev = NULL;					\
-			for (__entry = __table [__i]; __entry; ) {	\
+			SgenHashTableEntry **__iter, **__next;			\
+			for (__iter = &__table [__i]; *__iter; __iter = __next) {	\
+				SgenHashTableEntry *__entry = *__iter;	\
+				__next = &__entry->next;	\
 				(k) = __entry->key;			\
 				(v) = (gpointer)__entry->data;
 
 /* The loop must be continue'd after using this! */
 #define SGEN_HASH_TABLE_FOREACH_REMOVE(free)	do {			\
-		SgenHashTableEntry *__next = __entry->next;		\
-		if (__prev)						\
-			__prev->next = __next;				\
-		else							\
-			__table [__i] = __next;				\
+		*__iter = *__next;	\
+		__next = __iter;	\
+		--__hash_table->num_entries;				\
 		if ((free))						\
 			mono_sgen_free_internal (__entry, __hash_table->entry_mem_type); \
-		__entry = __next;					\
-		--__hash_table->num_entries;				\
 	} while (0)
 
 #define SGEN_HASH_TABLE_FOREACH_SET_KEY(k)	((__entry)->key = (k))
 
 #define SGEN_HASH_TABLE_FOREACH_END					\
-				__prev = __entry;			\
-				__entry = __entry->next;		\
 			}						\
 		}							\
 	} while (0)

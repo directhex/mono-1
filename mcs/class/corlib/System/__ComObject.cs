@@ -32,6 +32,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using Mono.Interop;
 using System.Collections;
 using System.Runtime.InteropServices;
@@ -226,3 +227,5 @@ namespace System
 			out IntPtr pUnk);
 	}
 }
+
+#endif

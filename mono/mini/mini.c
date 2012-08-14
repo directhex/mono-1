@@ -55,6 +55,7 @@
 #include <mono/utils/mono-logger-internal.h>
 #include <mono/utils/mono-mmap.h>
 #include <mono/utils/mono-tls.h>
+#include <mono/utils/mono-time.h>
 #include <mono/utils/dtrace.h>
 
 #include "mini.h"
@@ -63,13 +64,27 @@
 #include <string.h>
 #include <ctype.h>
 #include "trace.h"
+#ifndef TARGET_VITA
 #include "version.h"
+#endif
 
 #include "jit-icalls.h"
 
 #include "debug-mini.h"
 #include "mini-gc.h"
 #include "debugger-agent.h"
+
+//--- debug -------------------------------------------------------------------
+#if 0
+#define PRINTF(...)			printf( "[mini] " __VA_ARGS__ )
+#define ERR_PRINTF(...)		printf( "[mini:ERROR] " __VA_ARGS__ )
+#define TRACE				printf( "[mini:TRACE] %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ )
+#else
+#define PRINTF(...)
+#define ERR_PRINTF(...)
+#define TRACE
+#endif
+//-----------------------------------------------------------------------------
 
 static gpointer mono_jit_compile_method_with_opt (MonoMethod *method, guint32 opt, MonoException **ex);
 
@@ -3404,12 +3419,18 @@ mono_postprocess_patches (MonoCompile *cfg)
 
 			for (i = 0; i < patch_info->data.table->table_size; i++) {
 				/* Might be NULL if the switch is eliminated */
+#if defined(TARGET_VITA)
+				pss_code_mem_unlock ();
+#endif
 				if (patch_info->data.table->table [i]) {
 					g_assert (patch_info->data.table->table [i]->native_offset);
 					table [i] = GINT_TO_POINTER (patch_info->data.table->table [i]->native_offset);
 				} else {
 					table [i] = NULL;
 				}
+#if defined(TARGET_VITA)
+				pss_code_mem_lock ();
+#endif
 			}
 			patch_info->data.table->table = (MonoBasicBlock**)table;
 			break;
@@ -3676,7 +3697,13 @@ mono_codegen (MonoCompile *cfg)
 #endif
 
 	g_assert (code);
+#if defined(TARGET_VITA)
+	pss_code_mem_unlock ();
 	memcpy (code, cfg->native_code, cfg->code_len);
+	pss_code_mem_lock ();
+#else
+	memcpy (code, cfg->native_code, cfg->code_len);
+#endif
 #if defined(__default_codegen__)
 	g_free (cfg->native_code);
 #elif defined(__native_client_codegen__)
@@ -3753,6 +3780,7 @@ if (valgrind_register){
 #if defined(__native_client_codegen__) && defined(__native_client__)
 	cfg->native_code = code_dest;
 #endif
+
 	mono_profiler_code_buffer_new (cfg->native_code, cfg->code_len, MONO_PROFILER_CODE_BUFFER_METHOD, cfg->method);
 	
 	mono_arch_flush_icache (cfg->native_code, cfg->code_len);
@@ -3762,6 +3790,7 @@ if (valgrind_register){
 #ifdef MONO_ARCH_HAVE_UNWIND_TABLE
 	mono_arch_unwindinfo_install_unwind_info (&cfg->arch.unwindinfo, cfg->native_code, cfg->code_len);
 #endif
+
 }
 
 static void
@@ -4565,6 +4594,10 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, gbool
 		 */
 		cfg->opt &= ~ (MONO_OPT_LINEARS | MONO_OPT_COPYPROP | MONO_OPT_CONSPROP);
 		cfg->disable_ssa = TRUE;
+#if defined(TARGET_VITA)
+		/* Disable LOOP too since the dominator arrays are too big (transparentproxy.exe) */
+		cfg->opt &= ~(MONO_OPT_LOOP);
+#endif
 	}
 
 	if (cfg->opt & MONO_OPT_LOOP) {
@@ -4884,9 +4917,17 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, gbool
  
 	mono_save_seq_point_info (cfg);
 
+	/*
 	if (cfg->verbose_level >= 2) {
 		char *id =  mono_method_full_name (cfg->method, FALSE);
 		mono_disassemble_code (cfg, cfg->native_code, cfg->code_len, id + 3);
+		g_free (id);
+	}
+	*/
+
+	if (getenv ("DUMP_ASM")) {
+		char *id =  mono_method_full_name (cfg->method, TRUE);
+		mono_dump_code (cfg, cfg->native_code, cfg->code_len, id + 3);
 		g_free (id);
 	}
 
@@ -5292,8 +5333,9 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
 			patch_info.data.method = method;
 			g_hash_table_remove (domain_jit_info (target_domain)->jump_target_hash, method);
 
-			for (tmp = jlist->list; tmp; tmp = tmp->next)
+			for (tmp = jlist->list; tmp; tmp = tmp->next) {
 				mono_arch_patch_code (NULL, target_domain, tmp->data, &patch_info, NULL, TRUE);
+			}
 		}
 	}
 
@@ -5339,7 +5381,13 @@ mono_jit_compile_method_with_opt (MonoMethod *method, guint32 opt, MonoException
 	MonoJitInfo *info;
 	gpointer code, p;
 	MonoJitICallInfo *callinfo = NULL;
+	gint64 begin_time;
+	gint64 end_time;
+	gint64 time;
 
+	if (mono_jit_stats.enabled) {
+		begin_time = mono_100ns_ticks ();
+	}
 	/*
 	 * ICALL wrappers are handled specially, since there is only one copy of them
 	 * shared by all appdomains.
@@ -5394,6 +5442,21 @@ mono_jit_compile_method_with_opt (MonoMethod *method, guint32 opt, MonoException
 			mono_debug_add_icall_wrapper (method, callinfo);
 		}
 		mono_jit_unlock ();
+	}
+
+	if (mono_jit_stats.enabled) {
+		end_time = mono_100ns_ticks ();
+		time = ((int)((end_time-begin_time) / 10)) + 500 / 1000;
+
+		mono_jit_stats.compilation_time += time;
+		if (mono_jit_stats.fastest_compiled_method_time == 0 || mono_jit_stats.fastest_compiled_method_time > time) {
+			mono_jit_stats.fastest_compiled_method_time = time;
+			mono_jit_stats.fastest_compiled_method = g_strdup (mono_method_get_name (method));
+		}
+		if (mono_jit_stats.slowest_compiled_method_time < time) {
+			mono_jit_stats.slowest_compiled_method_time = time;
+			mono_jit_stats.slowest_compiled_method = g_strdup (mono_method_get_name (method));
+		}
 	}
 
 	return p;
@@ -5984,7 +6047,7 @@ mini_parse_debug_options (void)
 {
 	char *options = getenv ("MONO_DEBUG");
 	gchar **args, **ptr;
-	
+
 	if (!options)
 		return;
 
@@ -6207,6 +6270,13 @@ mini_init (const char *filename, const char *runtime_version)
 
 	InitializeCriticalSection (&jit_mutex);
 
+#if defined(TARGET_VITA)
+	pss_code_mem_initialize();
+	debug_options.explicit_null_checks = TRUE;
+	debug_options.soft_breakpoints = TRUE;
+#endif
+
+
 #ifdef MONO_DEBUGGER_SUPPORTED
 	if (mini_debug_running_inside_mdb ())
 		mini_debugger_init ();
@@ -6253,7 +6323,6 @@ mini_init (const char *filename, const char *runtime_version)
 	ticallbacks.thread_state_init_from_handle = mono_thread_state_init_from_handle;
 
 	mono_threads_runtime_init (&ticallbacks);
-
 
 	if (getenv ("MONO_DEBUG") != NULL)
 		mini_parse_debug_options ();
@@ -6338,9 +6407,11 @@ mini_init (const char *filename, const char *runtime_version)
 	mono_install_get_class_from_name (mono_aot_get_class_from_name);
  	mono_install_jit_info_find_in_aot (mono_aot_find_jit_info);
 
+#if !defined(TARGET_VITA)
 	if (debug_options.collect_pagefault_stats) {
 		mono_aot_set_make_unreadable (TRUE);
 	}
+#endif
 
 	if (runtime_version)
 		domain = mono_init_version (filename, runtime_version);
@@ -6597,6 +6668,19 @@ mini_init (const char *filename, const char *runtime_version)
 	mono_thread_attach (domain);
 #endif
 
+	/* This requires a fully working runtime so it should come last */
+	{
+		const char *error;
+
+		error = mono_check_corlib_version ();
+		if (error) {
+			fprintf (stderr, "Corlib not in sync with this runtime: %s\n", error);
+			fprintf (stderr, "Loaded from: %s\n",
+				mono_defaults.corlib? mono_image_get_filename (mono_defaults.corlib): "unknown");
+			exit (1);
+		}
+	}
+
 	mono_profiler_runtime_initialized ();
 
 	MONO_PROBE_VES_INIT_END ();
@@ -6615,6 +6699,9 @@ print_jit_stats (void)
 				 mono_jit_stats.max_ratio_method);
 		g_print ("Biggest method:         %ld (%s)\n", mono_jit_stats.biggest_method_size,
 				 mono_jit_stats.biggest_method);
+		g_print ("Compilation time in msecs:   %lf\n", (double) mono_jit_stats.compilation_time / 1000.0);
+		g_print ("  Fastest (in msecs):       %lf (%s)\n", (double) mono_jit_stats.fastest_compiled_method_time / 1000.0, mono_jit_stats.fastest_compiled_method);
+		g_print ("  Slowest (in msecs):       %lf (%s)\n", (double) mono_jit_stats.slowest_compiled_method_time / 1000.0, mono_jit_stats.slowest_compiled_method);
 
 		g_print ("\nCreated object count:   %ld\n", mono_stats.new_object_count);
 		g_print ("Delegates created:      %ld\n", mono_stats.delegate_creations);
@@ -6682,6 +6769,16 @@ mini_cleanup (MonoDomain *domain)
 #endif
 
 #ifndef MONO_CROSS_COMPILE	
+	/*
+	 * mono_domain_finalize () calls mono_thread_pool_cleanup which will
+	 * attempt to free all threadpool queues and exit their threads.  There
+	 * is a race since the threadpool free's the queues and the threads
+	 * may not have exiting.  We need to call mono_runtime_set_shutting_down ()
+	 * here instead of in mono_runtime_cleanup () so we dont crash while
+	 * cleaning up the threadpool
+	 */
+	mono_runtime_set_shutting_down ();
+
 	mono_runtime_shutdown ();
 	/* 
 	 * mono_runtime_cleanup() and mono_domain_finalize () need to
@@ -6716,7 +6813,9 @@ mini_cleanup (MonoDomain *domain)
 		mono_llvm_cleanup ();
 #endif
 
+#if !defined(DISABLE_AOT)
 	mono_aot_cleanup ();
+#endif
 
 	mono_trampolines_cleanup ();
 
@@ -6743,6 +6842,11 @@ mini_cleanup (MonoDomain *domain)
 		mono_method_desc_free (mono_inject_async_exc_method);
 
 	mono_native_tls_free (mono_jit_tls_id);
+
+#if defined(TARGET_VITA)
+	pss_code_mem_terminate ();
+#endif
+
 
 	DeleteCriticalSection (&jit_mutex);
 
@@ -6772,10 +6876,14 @@ mono_disable_optimizations (guint32 opts)
 char*
 mono_get_runtime_build_info (void)
 {
+#ifdef TARGET_VITA
+	return g_strdup_printf ("Mono for VITA");
+#else
 	if (mono_build_date)
 		return g_strdup_printf ("%s (%s %s)", VERSION, FULL_VERSION, mono_build_date);
 	else
 		return g_strdup_printf ("%s (%s)", VERSION, FULL_VERSION);
+#endif
 }
 
 static void

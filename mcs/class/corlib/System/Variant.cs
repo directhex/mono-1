@@ -27,6 +27,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using System.Runtime.InteropServices;
 
 namespace System
@@ -269,3 +270,5 @@ namespace System
         #pragma warning restore 169
 	}
 }
+
+#endif

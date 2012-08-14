@@ -105,7 +105,7 @@ alloc_dreg (MonoCompile *cfg, MonoStackType stack_type)
  * JIT code still uses the left and right fields, so it has to stay.
  */
 #define MONO_INST_NEW(cfg,dest,op) do {	\
-		(dest) = mono_mempool_alloc ((cfg)->mempool, sizeof (MonoInst));	\
+		(dest) = (MonoInst *) mono_mempool_alloc ((cfg)->mempool, sizeof (MonoInst));	\
 		(dest)->inst_c0 = (dest)->inst_c1 = 0; \
 		(dest)->next = (dest)->prev = NULL;    \
 		(dest)->opcode = (op);	\
@@ -678,7 +678,7 @@ alloc_dreg (MonoCompile *cfg, MonoStackType stack_type)
  * block_num: unique ID assigned at bblock creation
  */
 #define NEW_BBLOCK(cfg,bblock) do { \
-	(bblock) = mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoBasicBlock)); \
+	(bblock) = (MonoBasicBlock *) mono_mempool_alloc0 ((cfg)->mempool, sizeof (MonoBasicBlock)); \
 	(bblock)->block_num = cfg->num_bblocks++; \
     } while (0)
 
@@ -708,7 +708,7 @@ static int ccount = 0;
             MONO_START_BB ((cfg), falsebb); \
         } else { \
             ccount ++; \
-		    ins->inst_many_bb = mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
+		    ins->inst_many_bb = (MonoBasicBlock **) mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
             ins->inst_true_bb = (truebb); \
             ins->inst_false_bb = NULL; \
             mono_link_bblock ((cfg), (cfg)->cbb, (truebb)); \
@@ -731,7 +731,7 @@ static int ccount = 0;
             MONO_ADD_INS ((cfg)->cbb, ins); \
             MONO_START_BB ((cfg), falsebb); \
         } else { \
-		    ins->inst_many_bb = mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
+		    ins->inst_many_bb = (MonoBasicBlock **) mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
             ins->inst_true_bb = (truebb); \
             ins->inst_false_bb = NULL; \
             mono_link_bblock ((cfg), (cfg)->cbb, (truebb)); \
@@ -752,7 +752,7 @@ static int ccount = 0;
 #define	MONO_EMIT_NEW_BRANCH_BLOCK2(cfg,op,truebb,falsebb) do { \
         MonoInst *ins; \
         MONO_INST_NEW ((cfg), (ins), (op)); \
-		ins->inst_many_bb = mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
+		ins->inst_many_bb = (MonoBasicBlock **) mono_mempool_alloc (cfg->mempool, sizeof(gpointer)*2);	\
         ins->inst_true_bb = (truebb); \
         ins->inst_false_bb = (falsebb); \
         mono_link_bblock ((cfg), (cfg)->cbb, (truebb)); \

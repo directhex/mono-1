@@ -20,6 +20,7 @@
 
 #endif
 
+#include <config.h>
 #include <glib.h>
 
 #include "mono/io-layer/wapi.h"
@@ -747,20 +748,33 @@ static inline gint32 InterlockedExchangeAdd(volatile gint32 *dest, gint32 add)
 static inline gint32 InterlockedCompareExchange(volatile gint32 *dest, gint32 exch, gint32 comp)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	gint32 ret;
+	/*
+	 * The CAS instruction on ARM doesn't do a memory barrier, and our code depends on it.
+	 */
+	__sync_synchronize ();
+	ret = __sync_val_compare_and_swap(dest, comp, exch);
+	__sync_synchronize ();
+	return ret;
+#else
 	gint32 ret, tmp;
 	__asm__ __volatile__ (	"1:\n"
 				"mov	%0, #0\n"
+				"dmb sy\n"
 				"ldrex %1, [%2]\n"
 				"teq	%1, %3\n"
 				"it eq\n"
 				"strexeq %0, %4, [%2]\n"
 				"teq %0, #0\n"
 				"bne 1b\n"
+				"dmb sy\n"
 				: "=&r" (tmp), "=&r" (ret)
 				: "r" (dest), "r" (comp), "r" (exch)
 				: "memory", "cc");
 
 	return ret;
+#endif
 #else
 	gint32 a, b;
 
@@ -785,20 +799,33 @@ static inline gint32 InterlockedCompareExchange(volatile gint32 *dest, gint32 ex
 static inline gpointer InterlockedCompareExchangePointer(volatile gpointer *dest, gpointer exch, gpointer comp)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	guint32 ret;
+	/*
+	 * The CAS instruction on ARM doesn't do a memory barrier, and our code depends on it.
+	 */
+	__sync_synchronize ();
+	ret = __sync_val_compare_and_swap((guint32*)dest, (guint32)comp, (guint32)exch);
+	__sync_synchronize ();
+	return (gpointer)ret;
+#else
 	gpointer ret, tmp;
 	__asm__ __volatile__ (	"1:\n"
 				"mov	%0, #0\n"
+				"dmb sy\n"
 				"ldrex %1, [%2]\n"
 				"teq	%1, %3\n"
 				"it eq\n"
 				"strexeq %0, %4, [%2]\n"
 				"teq %0, #0\n"
 				"bne 1b\n"
+				"dmb sy\n"
 				: "=&r" (tmp), "=&r" (ret)
 				: "r" (dest), "r" (comp), "r" (exch)
 				: "memory", "cc");
 
 	return ret;
+#endif
 #else
 	gpointer a, b;
 
@@ -823,6 +850,11 @@ static inline gpointer InterlockedCompareExchangePointer(volatile gpointer *dest
 static inline gint32 InterlockedIncrement(volatile gint32 *dest)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	gint32 ret;
+	ret = __sync_add_and_fetch(dest, 1);
+	return ret;
+#else
 	gint32 ret, flag;
 	__asm__ __volatile__ (	"1:\n"
 				"ldrex %0, [%2]\n"
@@ -835,6 +867,7 @@ static inline gint32 InterlockedIncrement(volatile gint32 *dest)
 				: "memory", "cc");
 
 	return ret;
+#endif
 #else
 	gint32 a, b, c;
 
@@ -856,6 +889,11 @@ static inline gint32 InterlockedIncrement(volatile gint32 *dest)
 static inline gint32 InterlockedDecrement(volatile gint32 *dest)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	gint32 ret;
+	ret = __sync_sub_and_fetch(dest, 1);
+	return ret;
+#else
 	gint32 ret, flag;
 	__asm__ __volatile__ (	"1:\n"
 				"ldrex %0, [%2]\n"
@@ -868,6 +906,7 @@ static inline gint32 InterlockedDecrement(volatile gint32 *dest)
 				: "memory", "cc");
 
 	return ret;
+#endif
 #else
 	gint32 a, b, c;
 
@@ -889,17 +928,30 @@ static inline gint32 InterlockedDecrement(volatile gint32 *dest)
 static inline gint32 InterlockedExchange(volatile gint32 *dest, gint32 exch)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	guint32 ret;
+	/*
+	 * The CAS instruction on ARM doesn't do a memory barrier, and our code depends on it.
+	 */
+	__sync_synchronize ();
+	ret = __sync_val_compare_and_swap(dest, *dest, exch);
+	__sync_synchronize ();
+	return ret;
+#else
 	gint32 ret, flag;
 	__asm__ __volatile__ (
 			      "1:\n"
+			      "dmb sy\n"
 			      "ldrex %0, [%3]\n"
 			      "strex %1, %2, [%3]\n"
 			      "teq %1, #0\n"
 			      "bne 1b\n"
+			      "dmb sy\n"
 			      : "=&r" (ret), "=&r" (flag)
 			      : "r" (exch), "r" (dest)
 			      : "memory", "cc");
 	return ret;
+#endif
 #else
 	gint32 a;
 
@@ -914,17 +966,30 @@ static inline gint32 InterlockedExchange(volatile gint32 *dest, gint32 exch)
 static inline gpointer InterlockedExchangePointer(volatile gpointer *dest, gpointer exch)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	guint32 ret;
+	/*
+	 * The CAS instruction on ARM doesn't do a memory barrier, and our code depends on it.
+	 */
+	__sync_synchronize ();
+	ret = __sync_val_compare_and_swap((guint32*)dest, *((guint32*)dest), (guint32)exch);
+	__sync_synchronize ();
+	return (gpointer)ret;
+#else
 	gpointer ret, flag;
 	__asm__ __volatile__ (
 			      "1:\n"
+			      "dmb sy\n"
 			      "ldrex %0, [%3]\n"
 			      "strex %1, %2, [%3]\n"
 			      "teq %1, #0\n"
 			      "bne 1b\n"
+			      "dmb sy\n"
 			      : "=&r" (ret), "=&r" (flag)
 			      : "r" (exch), "r" (dest)
 			      : "memory", "cc");
 	return ret;
+#endif
 #else
 	gpointer a;
 
@@ -939,6 +1004,12 @@ static inline gpointer InterlockedExchangePointer(volatile gpointer *dest, gpoin
 static inline gint32 InterlockedExchangeAdd(volatile gint32 *dest, gint32 add)
 {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
+#if defined(HAVE_GCC_SYNC_ATOMICS)
+	// TODO : CHECK DISASM
+	gint32 ret;
+	ret = __sync_fetch_and_add(dest, add);
+	return ret;
+#else
 	gint32 ret, tmp, flag;
 	__asm__ __volatile__ (	"1:\n"
 				"ldrex %0, [%3]\n"
@@ -951,6 +1022,7 @@ static inline gint32 InterlockedExchangeAdd(volatile gint32 *dest, gint32 add)
 				: "memory", "cc");
 
 	return ret;
+#endif
 #else
 	int a, b, c;
 

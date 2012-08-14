@@ -123,7 +123,7 @@ g_utf8_validate (const gchar *str, gssize max_len, const gchar **end)
 {
 	guchar *inptr = (guchar *) str;
 	gboolean valid = TRUE;
-	guint length, min;
+	gint length, min;
 	gssize n = 0;
 	
 	if (max_len == 0)
@@ -180,13 +180,13 @@ g_utf8_get_char_validated (const gchar *str, gssize max_len)
 	int n, i;
 	
 	if (max_len == 0)
-		return -2;
+		return (gunichar)-2;
 	
 	if (u < 0x80) {
 		/* simple ascii case */
 		return u;
 	} else if (u < 0xc2) {
-		return -1;
+		return (gunichar)-1;
 	} else if (u < 0xe0) {
 		u &= 0x1f;
 		n = 2;
@@ -203,18 +203,18 @@ g_utf8_get_char_validated (const gchar *str, gssize max_len)
 		u &= 0x01;
 		n = 6;
 	} else {
-		return -1;
+		return (gunichar)-1;
 	}
 	
 	if (max_len > 0) {
 		if (!utf8_validate (inptr, MIN (max_len, n)))
-			return -1;
+			return (gunichar)-1;
 		
 		if (max_len < n)
-			return -2;
+			return (gunichar)-2;
 	} else {
 		if (!utf8_validate (inptr, n))
-			return -1;
+			return (gunichar)-1;
 	}
 	
 	for (i = 1; i < n; i++)

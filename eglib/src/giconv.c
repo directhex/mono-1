@@ -141,7 +141,7 @@ g_iconv_open (const char *to_charset, const char *from_charset)
 	cd = (GIConv) g_malloc (sizeof (struct _GIConv));
 	cd->decode = decoder;
 	cd->encode = encoder;
-	cd->c = -1;
+	cd->c = (gunichar)-1;
 	
 #ifdef HAVE_ICONV
 	cd->cd = icd;
@@ -179,7 +179,7 @@ g_iconv (GIConv cd, gchar **inbytes, gsize *inbytesleft,
 	
 	if (outbytes == NULL || outbytesleft == NULL) {
 		/* reset converter */
-		cd->c = -1;
+		cd->c = (gunichar)-1;
 		return 0;
 	}
 	
@@ -485,7 +485,7 @@ decode_utf8 (char *inbuf, size_t inleft, gunichar *outchar)
 {
 	unsigned char *inptr = (unsigned char *) inbuf;
 	gunichar u;
-	int n, i;
+	size_t n, i;
 	
 	u = *inptr;
 	
@@ -543,10 +543,10 @@ static int
 encode_utf8 (gunichar c, char *outbuf, size_t outleft)
 {
 	unsigned char *outptr = (unsigned char *) outbuf;
-	int base, n, i;
+	size_t base, n, i;
 	
 	if (c < 0x80) {
-		outptr[0] = c;
+		outptr[0] = (unsigned char) c;
 		return 1;
 	} else if (c < 0x800) {
 		base = 192;
@@ -585,7 +585,7 @@ encode_utf8 (gunichar c, char *outbuf, size_t outleft)
 		c >>= 6;
 	}
 	
-	outptr[0] = c | base;
+	outptr[0] = (unsigned char) (c | base);
 #endif
 	
 	return n;
@@ -822,7 +822,7 @@ g_unichar_to_utf8 (gunichar c, gchar *outbuf)
 		}
 		
 		/* first character has a different base */
-		outbuf[0] = c | base;
+		outbuf[0] = (gchar) (c | base);
 	}
 	
 	return n;

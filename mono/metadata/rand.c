@@ -13,8 +13,12 @@
 #include <config.h>
 #include <glib.h>
 #include <sys/types.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -26,7 +30,7 @@
 #include <mono/metadata/rand.h>
 #include <mono/metadata/exception.h>
 
-#if !defined(__native_client__) && !defined(HOST_WIN32)
+#if !defined(__native_client__) && !defined(HOST_WIN32) && !defined(TARGET_VITA)
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
@@ -230,6 +234,40 @@ void
 ves_icall_System_Security_Cryptography_RNGCryptoServiceProvider_RngClose (gpointer handle) 
 {
 }
+
+#elif defined(TARGET_VITA)
+
+#include "bridge.h"
+
+MonoBoolean
+ves_icall_System_Security_Cryptography_RNGCryptoServiceProvider_RngOpen (void)
+{
+	return TRUE;
+}
+
+gpointer
+ves_icall_System_Security_Cryptography_RNGCryptoServiceProvider_RngInitialize (MonoArray *seed)
+{
+	return pss_get_prng_provider ();
+}
+
+gpointer
+ves_icall_System_Security_Cryptography_RNGCryptoServiceProvider_RngGetBytes (gpointer handle, MonoArray *arry)
+{
+	guint32 len = mono_array_length (arry);
+	guchar *buf = mono_array_addr (arry, guchar, 0);
+
+	pss_prng_fill (handle, buf, len);
+
+	return handle;
+}
+
+void
+ves_icall_System_Security_Cryptography_RNGCryptoServiceProvider_RngClose (gpointer handle) 
+{
+	pss_free_prng_provider (handle);
+}
+
 #else
 
 #ifndef NAME_DEV_URANDOM

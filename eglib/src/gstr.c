@@ -642,14 +642,14 @@ g_filename_from_uri (const gchar *uri, gchar **hostname, GError **error)
 		} 
 		flen++;
 	}
-#ifndef G_OS_WIN32
+#if !defined(G_OS_WIN32) && !defined(SN_TARGET_PSP2)
 	flen++;
 #endif
 
 	result = g_malloc (flen + 1);
 	result [flen] = 0;
 
-#ifndef G_OS_WIN32
+#if !defined(G_OS_WIN32) && !defined(SN_TARGET_PSP2)
 	*result = '/';
 	r = result + 1;
 #else

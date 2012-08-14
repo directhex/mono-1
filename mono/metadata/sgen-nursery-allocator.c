@@ -4,7 +4,12 @@
  *
  * Copyright 2009-2010 Novell, Inc.
  *           2011 Rodrigo Kumpera
+ *
+ * Copyright 2011 SCEA, LLC
  * 
+ * Copyright 2011 Xamarin Inc  (http://www.xamarin.com)
+ *
+ *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -43,17 +48,23 @@
 #include "config.h"
 #ifdef HAVE_SGEN_GC
 
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+#ifdef HAVE_SEMAPHORE_H
+#include <semaphore.h>
+#endif
+#ifdef HAVE_PTHREAD_H
+#include <pthread.h>
+#endif
 #include <stdio.h>
 #include <string.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <errno.h>
 #include <assert.h>
 #ifdef __MACH__
 #undef _XOPEN_SOURCE
 #endif
-#include <pthread.h>
 #ifdef __MACH__
 #define _XOPEN_SOURCE
 #endif
@@ -210,7 +221,7 @@ dump_alloc_records (void)
 	printf ("------------------------------------DUMP RECORDS----------------------------\n");
 	for (i = 0; i < next_record; ++i) {
 		AllocRecord *rec = alloc_records + i;
-		printf ("obj [%p, %p] size %zd reason %s seq %d %zx\n", rec->address, rec_end (rec), rec->size, get_reason_name (rec), rec->seq, (gsize)rec->tid);
+		printf ("obj [%p, %p] size " SGEN_SIZE_T_SPECIFIER " reason %s seq %d tid %zx\n", rec->address, rec_end (rec), rec->size, get_reason_name (rec), rec->seq, (size_t)rec->tid);
 	}
 }
 
@@ -237,7 +248,7 @@ verify_alloc_records (void)
 			hole_size = rec->address - rec_end (prev);
 			max_hole = MAX (max_hole, hole_size);
 		}
-		printf ("obj [%p, %p] size %zd hole to prev %d\n", rec->address, rec_end (rec), rec->size, hole_size);
+		printf ("obj [%p, %p] size " SGEN_SIZE_T_SPECIFIER " hole to prev %d reason %s seq %d tid %zx\n", rec->address, rec_end (rec), rec->size, hole_size, get_reason_name (rec), rec->seq, (size_t)rec->tid);
 		prev = rec;
 	}
 	printf ("SUMMARY total alloc'd %d holes %d max_hole %d\n", total, holes, max_hole);
@@ -343,9 +354,9 @@ try_again:
 static gboolean
 claim_remaining_size (Fragment *frag, char *alloc_end)
 {
-	/* All space used, we have to race to remove. */
+	/* All space used, nothing to claim. */
 	if (frag->fragment_end <= alloc_end)
-		return TRUE;
+		return FALSE;
 
 	/* Try to alloc all the remaining space. */
 	return InterlockedCompareExchangePointer ((volatile gpointer*)&frag->fragment_next, frag->fragment_end, alloc_end) == alloc_end;
@@ -356,6 +367,8 @@ alloc_from_fragment (Fragment *frag, size_t size)
 {
 	char *p = frag->fragment_next;
 	char *end = p + size;
+
+	DEBUG (9, fprintf (gc_debug_file, "Allocating from fragment: %p-%p desired size: " SGEN_SIZE_T_SPECIFIER " fragment size " SGEN_SIZE_T_SPECIFIER "\n", frag->fragment_start, frag->fragment_end, size, frag->fragment_end - frag->fragment_start));
 
 	if (end > frag->fragment_end)
 		return NULL;
@@ -388,7 +401,7 @@ alloc_from_fragment (Fragment *frag, size_t size)
 
 		/*Use Michaels linked list remove*/
 
-		/*prev_ptr will be null is the fragment was removed concurrently */
+		/*prev_ptr will be null if the fragment was removed concurrently */
 		while (prev_ptr) {
 			next = frag->next;
 
@@ -486,7 +499,7 @@ static mword fragment_total = 0;
 static void
 add_nursery_frag (size_t frag_size, char* frag_start, char* frag_end)
 {
-	DEBUG (4, fprintf (gc_debug_file, "Found empty fragment: %p-%p, size: %zd\n", frag_start, frag_end, frag_size));
+	DEBUG (4, fprintf (gc_debug_file, "Found empty fragment: %p-%p, size: " SGEN_SIZE_T_SPECIFIER "\n", frag_start, frag_end, frag_size));
 	binary_protocol_empty (frag_start, frag_size);
 	/* Not worth dealing with smaller fragments: need to tune */
 	if (frag_size >= SGEN_MAX_NURSERY_WASTE) {
@@ -496,7 +509,7 @@ add_nursery_frag (size_t frag_size, char* frag_start, char* frag_end)
 
 #ifdef NALLOC_DEBUG
 		/* XXX convert this into a flight record entry
-		printf ("\tfragment [%p %p] size %zd\n", frag_start, frag_end, frag_size);
+		printf ("\tfragment [%p %p] size " SGEN_SIZE_T_SPECIFIER "\n", frag_start, frag_end, frag_size);
 		*/
 #endif
 		add_fragment (frag_start, frag_end);
@@ -598,7 +611,7 @@ void*
 mono_sgen_nursery_alloc (size_t size)
 {
 	Fragment *frag;
-	DEBUG (4, fprintf (gc_debug_file, "Searching nursery for size: %zd\n", size));
+	DEBUG (4, fprintf (gc_debug_file, "Searching nursery for size: " SGEN_SIZE_T_SPECIFIER "\n", size));
 	size = SGEN_ALIGN_UP (size);
 
 	HEAVY_STAT (InterlockedIncrement (&stat_nursery_alloc_requests));
@@ -630,7 +643,7 @@ void*
 mono_sgen_nursery_alloc_range (size_t desired_size, size_t minimum_size, int *out_alloc_size)
 {
 	Fragment *frag, *min_frag;
-	DEBUG (4, fprintf (gc_debug_file, "Searching for byte range desired size: %zd minimum size %zd\n", desired_size, minimum_size));
+	DEBUG (4, fprintf (gc_debug_file, "Searching for byte range desired size: " SGEN_SIZE_T_SPECIFIER " minimum size " SGEN_SIZE_T_SPECIFIER "\n", desired_size, minimum_size));
 
 	HEAVY_STAT (InterlockedIncrement (&stat_nursery_alloc_range_requests));
 

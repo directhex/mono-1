@@ -1513,7 +1513,7 @@ mono_handle_exception_internal (MonoContext *ctx, gpointer obj, gboolean resume,
 			mono_debugger_agent_handle_exception (obj, ctx, NULL);
 
 			if (mini_get_debug_options ()->suspend_on_unhandled) {
-				fprintf (stderr, "Unhandled exception, suspending...");
+				g_printerr ( "Unhandled exception, suspending...");
 				while (1)
 					;
 			}
@@ -1957,7 +1957,7 @@ try_restore_stack_protection (MonoJitTlsData *jit_tls, int extra_bytes)
 	/* at this point we could try and build a new domain->stack_overflow_ex, but only if there
 	 * is sufficient stack
 	 */
-	//fprintf (stderr, "restoring stack protection: %p-%p (%d)\n", jit_tls->stack_ovf_guard_base, (char*)jit_tls->stack_ovf_guard_base + unprotect_size, unprotect_size);
+	//g_printerr ( "restoring stack protection: %p-%p (%d)\n", jit_tls->stack_ovf_guard_base, (char*)jit_tls->stack_ovf_guard_base + unprotect_size, unprotect_size);
 	if (unprotect_size)
 		mono_mprotect (jit_tls->stack_ovf_guard_base, unprotect_size, MONO_MMAP_NONE);
 	return unprotect_size == jit_tls->stack_ovf_guard_size;
@@ -2023,7 +2023,7 @@ mono_handle_soft_stack_ovf (MonoJitTlsData *jit_tls, MonoJitInfo *ji, void *ctx,
 			guard_size -= mono_pagesize ();
 		}
 		guard_size = jit_tls->stack_ovf_guard_size - guard_size;
-		/*fprintf (stderr, "unprotecting: %d\n", guard_size);*/
+		/*g_printerr ( "unprotecting: %d\n", guard_size);*/
 		mono_mprotect ((char*)jit_tls->stack_ovf_guard_base + jit_tls->stack_ovf_guard_size - guard_size, guard_size, MONO_MMAP_READ|MONO_MMAP_WRITE);
 #ifdef MONO_ARCH_SIGSEGV_ON_ALTSTACK
 		if (ji) {
@@ -2035,12 +2035,12 @@ mono_handle_soft_stack_ovf (MonoJitTlsData *jit_tls, MonoJitInfo *ji, void *ctx,
 			/* We print a message: after this even managed stack overflows
 			 * may crash the runtime
 			 */
-			fprintf (stderr, "Stack overflow in unmanaged: IP: %p, fault addr: %p\n", mono_arch_ip_from_context (ctx), fault_addr);
+			g_printerr ( "Stack overflow in unmanaged: IP: %p, fault addr: %p\n", mono_arch_ip_from_context (ctx), fault_addr);
 			if (!jit_tls->handling_stack_ovf) {
 				jit_tls->restore_stack_prot = restore_stack_protection_tramp;
 				jit_tls->handling_stack_ovf = 1;
 			} else {
-				/*fprintf (stderr, "Already handling stack overflow\n");*/
+				/*g_printerr ( "Already handling stack overflow\n");*/
 			}
 		}
 		return TRUE;
@@ -2101,12 +2101,12 @@ mono_handle_hard_stack_ovf (MonoJitTlsData *jit_tls, MonoJitInfo *ji, void *ctx,
 	MonoContext mctx;
 
 	/* we don't do much now, but we can warn the user with a useful message */
-	fprintf (stderr, "Stack overflow: IP: %p, fault addr: %p\n", mono_arch_ip_from_context (ctx), fault_addr);
+	g_printerr ( "Stack overflow: IP: %p, fault addr: %p\n", mono_arch_ip_from_context (ctx), fault_addr);
 
 #ifdef MONO_ARCH_HAVE_SIGCTX_TO_MONOCTX
 	mono_arch_sigctx_to_monoctx (ctx, &mctx);
 			
-	fprintf (stderr, "Stacktrace:\n");
+	g_printerr ( "Stacktrace:\n");
 
 	memset (&ud, 0, sizeof (ud));
 	ud.stream = stderr;
@@ -2114,9 +2114,9 @@ mono_handle_hard_stack_ovf (MonoJitTlsData *jit_tls, MonoJitInfo *ji, void *ctx,
 	mono_walk_stack_with_ctx (print_overflow_stack_frame, &mctx, MONO_UNWIND_LOOKUP_ACTUAL_METHOD, &ud);
 #else
 	if (ji && ji->method)
-		fprintf (stderr, "At %s\n", mono_method_full_name (ji->method, TRUE));
+		g_printerr ( "At %s\n", mono_method_full_name (ji->method, TRUE));
 	else
-		fprintf (stderr, "At <unmanaged>.\n");
+		g_printerr ( "At <unmanaged>.\n");
 #endif
 
 	_exit (1);
@@ -2132,10 +2132,21 @@ print_stack_frame (StackFrameInfo *frame, MonoContext *ctx, gpointer data)
 
 	if (method) {
 		gchar *location = mono_debug_print_stack_frame (method, frame->native_offset, mono_domain_get ());
-		fprintf (stream, "  %s\n", location);
+		if (stream == stdout)
+			g_print ("  %s\n", location);
+		else if (stream == stderr)
+			g_printerr ("  %s\n", location);
+		else
+			fprintf (stream, "  %s\n", location);
 		g_free (location);
-	} else
-		fprintf (stream, "  at <unknown> <0x%05x>\n", frame->native_offset);
+	} else {
+		if (stream == stdout)
+			g_print ("  at <unknown> <0x%05x>\n", frame->native_offset);
+		else if (stream == stderr)
+			g_printerr ("  at <unknown> <0x%05x>\n", frame->native_offset);
+		else
+			fprintf (stream, "  at <unknown> <0x%05x>\n", frame->native_offset);
+	}
 
 	return FALSE;
 }
@@ -2178,7 +2189,7 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 		return;
 
 	if (mini_get_debug_options ()->suspend_on_sigsegv) {
-		fprintf (stderr, "Received SIGSEGV, suspending...");
+		g_printerr ( "Received SIGSEGV, suspending...");
 		while (1)
 			;
 	}
@@ -2188,7 +2199,7 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 
 	/* !jit_tls means the thread was not registered with the runtime */
 	if (jit_tls && mono_thread_internal_current ()) {
-		fprintf (stderr, "Stacktrace:\n\n");
+		g_printerr ("Stacktrace:\n\n");
 
 		mono_walk_stack (print_stack_frame, TRUE, stderr);
 
@@ -2202,12 +2213,12 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 	int i, size;
 	const char *signal_str = (signal == SIGSEGV) ? "SIGSEGV" : "SIGABRT";
 
-	fprintf (stderr, "\nNative stacktrace:\n\n");
+	g_printerr ("\nNative stacktrace:\n\n");
 
 	size = backtrace (array, 256);
 	names = backtrace_symbols (array, size);
 	for (i =0; i < size; ++i) {
-		fprintf (stderr, "\t%s\n", names [i]);
+		g_printerr ("\t%s\n", names [i]);
 	}
 	free (names);
 
@@ -2249,7 +2260,7 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 
 		close (stdout_pipe [1]);
 
-		fprintf (stderr, "\nDebug info from gdb:\n\n");
+		g_printerr ("\nDebug info from gdb:\n\n");
 
 		while (1) {
 			int nread = read (stdout_pipe [0], buffer, 1024);
@@ -2267,7 +2278,7 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 	 * on anything working. So try to print out lots of diagnostics, starting 
 	 * with ones which have a greater chance of working.
 	 */
-	fprintf (stderr,
+	g_printerr (
 			 "\n"
 			 "=================================================================\n"
 			 "Got a %s while executing native code. This usually indicates\n"
@@ -2288,6 +2299,17 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 
 	g_assert (sigaction (SIGABRT, &sa, NULL) != -1);
 
+#endif
+
+#ifdef PLATFORM_ANDROID
+	/* The abort handler will SEGV itself on some android platforms, lets remove
+	 * our SEGV handler before aborting
+	 */
+	sa.sa_handler = SIG_DFL;
+	sigemptyset (&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	g_assert (sigaction (SIGSEGV, &sa, NULL) != -1);
 #endif
 
 	abort ();

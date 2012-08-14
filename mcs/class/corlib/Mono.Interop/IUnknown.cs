@@ -28,6 +28,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using System;
 using System.Runtime.InteropServices;
 
@@ -39,3 +40,4 @@ namespace Mono.Interop
 	{
 	}
 }
+#endif

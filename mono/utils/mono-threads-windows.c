@@ -35,12 +35,14 @@ gboolean
 mono_threads_core_suspend (MonoThreadInfo *info)
 {
 	g_assert (0);
+	return FALSE;
 }
 
 gboolean
 mono_threads_core_resume (MonoThreadInfo *info)
 {
 	g_assert (0);
+	return FALSE;
 }
 
 void
@@ -63,7 +65,7 @@ typedef struct {
 static DWORD WINAPI
 inner_start_thread (LPVOID arg)
 {
-	ThreadStartInfo *start_info = arg;
+	ThreadStartInfo *start_info = (ThreadStartInfo *) arg;
 	void *t_arg = start_info->arg;
 	int post_result;
 	LPTHREAD_START_ROUTINE start_func = start_info->start_routine;
@@ -79,8 +81,6 @@ inner_start_thread (LPVOID arg)
 
 	result = start_func (t_arg);
 
-	g_assert (!mono_domain_get ());
-
 	return result;
 }
 
@@ -91,7 +91,7 @@ mono_threads_CreateThread (LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, 
 	ThreadStartInfo *start_info;
 	HANDLE result;
 
-	start_info = g_malloc0 (sizeof (ThreadStartInfo));
+	start_info = (ThreadStartInfo *) g_malloc0 (sizeof (ThreadStartInfo));
 	if (!start_info)
 		return NULL;
 	MONO_SEM_INIT (&(start_info->registered), 0);
@@ -111,7 +111,6 @@ mono_threads_CreateThread (LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, 
 	g_free (start_info);
 	return result;
 }
-
 
 MonoNativeThreadId
 mono_native_thread_id_get (void)

@@ -475,6 +475,19 @@ DEFAULT_MMAP_THRESHOLD       default: 256K
 #define MMAP_CLEARS 0 /* WINCE and some others apparently don't clear */
 #endif  /* WIN32 */
 
+#if defined(TARGET_VITA)
+#include <stddef.h>  /* For size_t */
+#include <assert.h>
+#define HAVE_MMAP 1
+#define HAVE_MREMAP 0
+#define HAVE_MORECORE 0
+#define MALLOC_FAILURE_ACTION
+#define MMAP_CLEARS 0
+#define LACKS_SYS_MMAN_H 1
+#define LACKS_FCNTL_H 1
+#define LACKS_SYS_PARAM_H 1
+#endif
+
 #if defined(DARWIN) || defined(_DARWIN)
 /* Mac OSX docs advise not to use sbrk; it seems better to use mmap */
 #ifndef HAVE_MORECORE
@@ -1168,6 +1181,7 @@ int mspace_mallopt(int, int);
 #endif /* WIN32 */
 
 #include <stdio.h>       /* for printing in malloc_stats */
+#include <glib.h>
 
 #ifndef LACKS_ERRNO_H
 #include <errno.h>       /* for MALLOC_FAILURE_ACTION */
@@ -1311,7 +1325,17 @@ extern void*     sbrk(ptrdiff_t);
 #define IS_MMAPPED_BIT       (SIZE_T_ONE)
 #define USE_MMAP_BIT         (SIZE_T_ONE)
 
-#ifndef WIN32
+#if defined(TARGET_VITA)
+#include "bridge.h"
+
+#define CALL_MUNMAP(a, s) pss_code_mem_free ((a))
+#define CALL_MMAP(s) pss_code_mem_alloc ((&s))
+#define DIRECT_MMAP(s)       CALL_MMAP(s)
+#define PREACTION_HOOK() do { pss_code_mem_unlock (); } while (0)
+#define POSTACTION_HOOK() do { pss_code_mem_lock (); } while (0)
+
+#elif !defined(WIN32)
+
 #define CALL_MUNMAP(a, s)    munmap((a), (s))
 #define MMAP_PROT            (PROT_READ|PROT_WRITE|PROT_EXEC)
 #if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
@@ -1479,6 +1503,11 @@ static MLOCK_T magic_init_mutex;
 #define RELEASE_MAGIC_INIT_LOCK()
 #endif /* USE_LOCKS */
 
+/* Some platforms might require global locks around the allocator routines */
+#ifndef ACQUIRE_GLOBAL
+#define ACQUIRE_GLOBAL()
+#define RELEASE_GLOBAL()
+#endif
 
 /* -----------------------  Chunk representations ------------------------ */
 
@@ -1692,7 +1721,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define chunksize(p)        ((p)->head & ~(INUSE_BITS))
 
 #define clear_pinuse(p)     ((p)->head &= ~PINUSE_BIT)
-#define clear_cinuse(p)     ((p)->head &= ~CINUSE_BIT)
+#define clear_cinuse(p)		((p)->head &= ~CINUSE_BIT)
 
 /* Treat space at ptr +/- offset as a chunk */
 #define chunk_plus_offset(p, s)  ((mchunkptr)(((char*)(p)) + (s)))
@@ -1710,12 +1739,13 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define set_foot(p, s)  (((mchunkptr)((char*)(p) + (s)))->prev_foot = (s))
 
 /* Set size, pinuse bit, and foot */
-#define set_size_and_pinuse_of_free_chunk(p, s)\
-  ((p)->head = (s|PINUSE_BIT), set_foot(p, s))
+#define set_size_and_pinuse_of_free_chunk(p, s) ((p)->head = (s|PINUSE_BIT), set_foot(p, s))
 
 /* Set size, pinuse bit, foot, and clear next pinuse */
-#define set_free_with_pinuse(p, s, n)\
-  (clear_pinuse(n), set_size_and_pinuse_of_free_chunk(p, s))
+#define set_free_with_pinuse(p, s, n) do { \
+		clear_pinuse(n); \
+		set_size_and_pinuse_of_free_chunk(p, s); \
+	} while (0)
 
 #define is_mmapped(p)\
   (!((p)->head & PINUSE_BIT) && ((p)->prev_foot & IS_MMAPPED_BIT))
@@ -2027,6 +2057,8 @@ typedef struct malloc_state*    mstate;
   initialized in init_mparams.
 */
 
+static int init_mparams(void);
+
 struct malloc_params {
   size_t magic;
   size_t page_size;
@@ -2131,8 +2163,36 @@ static int has_segment_link(mstate m, msegmentptr ss) {
 /* Ensure locks are initialized */
 #define GLOBALLY_INITIALIZE() (mparams.page_size == 0 && init_mparams())
 
-#define PREACTION(M)  ((GLOBALLY_INITIALIZE() || use_lock(M))? ACQUIRE_LOCK(&(M)->mutex) : 0)
-#define POSTACTION(M) { if (use_lock(M)) RELEASE_LOCK(&(M)->mutex); }
+#ifndef PREACTION_HOOK
+#define PREACTION_HOOK() do { } while (0)
+#endif
+
+#ifndef POSTACTION_HOOK
+#define POSTACTION_HOOK() do { } while (0)
+#endif
+
+static inline int
+preaction (mstate M) {
+	if (GLOBALLY_INITIALIZE() || use_lock(M)) {
+		int res = ACQUIRE_LOCK(&(M)->mutex);
+		PREACTION_HOOK();
+		return res;
+	} else {
+		return 0;
+	}
+}
+
+static inline void
+postaction (mstate M)
+{
+	if (use_lock(M)) {
+		POSTACTION_HOOK();
+		RELEASE_LOCK(&(M)->mutex);
+	}
+}
+
+#define PREACTION(M) preaction ((M))
+#define POSTACTION(M) do { postaction ((M)); } while (0)
 #else /* USE_LOCKS */
 
 #ifndef PREACTION
@@ -2404,8 +2464,7 @@ static size_t traverse_and_check(mstate m);
   ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
 
 /* Set size, cinuse and pinuse bit of this chunk */
-#define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
-  ((p)->head = (s|PINUSE_BIT|CINUSE_BIT))
+#define set_size_and_pinuse_of_inuse_chunk(M, p, s) ((p)->head = (s|PINUSE_BIT|CINUSE_BIT))
 
 #else /* FOOTERS */
 
@@ -3480,9 +3539,9 @@ static void* sys_alloc(mstate m, size_t nb) {
       m->seg.sflags = mmap_flag;
       m->magic = mparams.magic;
       init_bins(m);
-      if (is_global(m)) 
-        init_top(m, (mchunkptr)tbase, tsize - TOP_FOOT_SIZE);
-      else {
+      if (is_global(m)) {
+		  init_top(m, (mchunkptr)tbase, tsize - TOP_FOOT_SIZE);
+      } else {
         /* Offset top by embedded malloc_state */
         mchunkptr mn = next_chunk(mem2chunk(m));
         init_top(m, mn, (size_t)((tbase + tsize) - (char*)mn) -TOP_FOOT_SIZE);
@@ -4186,7 +4245,9 @@ void* dlmalloc(size_t bytes) {
   return 0;
 }
 
-void dlfree(void* mem) {
+static
+void dlfree_locked(void* mem) {
+
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
      free chunks, if they exist, and then place in a bin.  Intermixed
@@ -4284,6 +4345,10 @@ void dlfree(void* mem) {
 #if !FOOTERS
 #undef fm
 #endif /* FOOTERS */
+}
+
+void dlfree(void* mem) {
+	dlfree_locked (mem);
 }
 
 #if 0

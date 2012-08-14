@@ -1029,7 +1029,11 @@ typedef struct {
 	ARM_RORS_REG_COND(p, rd, rm, rs, ARMCOND_AL)
 #define ARM_RORS_REG_REG(p, rd, rm, rs) ARM_RORS_REG(p, rd, rm, rs)
 
+#if defined(TARGET_VITA)
+#define ARM_DBRK(p) ARM_EMIT(p, 0xE1200070)
+#else
 #define ARM_DBRK(p) ARM_EMIT(p, 0xE6000010)
+#endif
 #define ARM_IASM_DBRK() ARM_IASM_EMIT(0xE6000010)
 
 #define ARM_INC(p, reg) ARM_ADD_REG_IMM8(p, reg, reg, 1)

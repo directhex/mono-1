@@ -26,13 +26,17 @@
 #include <errno.h>
 
 #include <sys/types.h>
-#ifndef HOST_WIN32 
+#if !defined(HOST_WIN32) && !defined(TARGET_VITA)
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#endif
+
+#if defined(TARGET_VITA)
+#include "sockets-vita.h"
 #endif
 
 #include <mono/metadata/object.h>
@@ -129,15 +133,21 @@ static gint32 convert_family(MonoAddressFamily mono_family)
 		break;
 		
 	case AddressFamily_Unspecified:
+#ifdef AF_UNSPEC
 		family=AF_UNSPEC;
+#endif
 		break;
 		
 	case AddressFamily_Unix:
+#ifdef AF_UNIX
 		family=AF_UNIX;
+#endif
 		break;
 		
 	case AddressFamily_InterNetwork:
+#ifdef AF_INET
 		family=AF_INET;
+#endif
 		break;
 		
 	case AddressFamily_Ipx:
@@ -159,7 +169,9 @@ static gint32 convert_family(MonoAddressFamily mono_family)
 		break;
 		
 	case AddressFamily_AppleTalk:
+#ifdef AF_APPLETALK
 		family=AF_APPLETALK;
+#endif
 		break;
 		
 	case AddressFamily_InterNetworkV6:
@@ -184,17 +196,23 @@ static MonoAddressFamily convert_to_mono_family(guint16 af_family)
 	MonoAddressFamily family=AddressFamily_Unknown;
 	
 	switch(af_family) {
+#ifdef AF_UNSPEC
 	case AF_UNSPEC:
 		family=AddressFamily_Unspecified;
 		break;
-		
+#endif
+
+#ifdef AF_UNIX
 	case AF_UNIX:
 		family=AddressFamily_Unix;
 		break;
-		
+#endif
+
+#ifdef AF_INET
 	case AF_INET:
 		family=AddressFamily_InterNetwork;
 		break;
+#endif
 		
 #ifdef AF_IPX
 	case AF_IPX:
@@ -214,9 +232,11 @@ static MonoAddressFamily convert_to_mono_family(guint16 af_family)
 		break;
 #endif
 		
+#ifdef AF_APPLETALK
 	case AF_APPLETALK:
 		family=AddressFamily_AppleTalk;
 		break;
+#endif
 		
 #ifdef AF_INET6
 	case AF_INET6:
@@ -260,7 +280,9 @@ static gint32 convert_type(MonoSocketType mono_type)
 		break;
 
 	case SocketType_Seqpacket:
+#ifdef SOCK_SEQPACKET
 		type=SOCK_SEQPACKET;
+#endif
 		break;
 
 	case SocketType_Unknown:
@@ -323,12 +345,27 @@ static gint32 convert_socketflags (gint32 sflags)
 		/* Contains invalid flag values */
 		return -1;
 
-	if (sflags & SocketFlags_OutOfBand)
+	if (sflags & SocketFlags_OutOfBand) {
+#ifdef MSG_OOB
 		flags |= MSG_OOB;
-	if (sflags & SocketFlags_Peek)
+#else
+		return -1;
+#endif
+	}
+	if (sflags & SocketFlags_Peek) {
+#ifdef MSG_PEEK
 		flags |= MSG_PEEK;
-	if (sflags & SocketFlags_DontRoute)
+#else
+		return -1;
+#endif
+	}
+	if (sflags & SocketFlags_DontRoute) {
+#ifdef MSG_DONTROUTE
 		flags |= MSG_DONTROUTE;
+#else
+		return -1;
+#endif
+	}
 
 	/* Ignore Partial - see bug 349688.  Don't return -1, because
 	 * according to the comment in that bug ms runtime doesn't for
@@ -358,6 +395,8 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 					     int *system_level,
 					     int *system_name)
 {
+	*system_level = -1;
+
 	switch (mono_level) {
 	case SocketOptionLevel_Socket:
 		*system_level = SOL_SOCKET;
@@ -370,9 +409,11 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 			 */
 			*system_name = SO_LINGER;
 			break;
+#ifdef SO_DEBUG
 		case SocketOptionName_Debug:
 			*system_name = SO_DEBUG;
 			break;
+#endif
 #ifdef SO_ACCEPTCONN
 		case SocketOptionName_AcceptConnection:
 			*system_name = SO_ACCEPTCONN;
@@ -384,9 +425,11 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 		case SocketOptionName_KeepAlive:
 			*system_name = SO_KEEPALIVE;
 			break;
+#ifdef SO_DONTROUTE
 		case SocketOptionName_DontRoute:
 			*system_name = SO_DONTROUTE;
 			break;
+#endif
 		case SocketOptionName_Broadcast:
 			*system_name = SO_BROADCAST;
 			break;
@@ -453,6 +496,7 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 #ifdef HAVE_SOL_IP
 		*system_level = SOL_IP;
 #else
+#ifndef TARGET_VITA
 		if (1) {
 			static int cached = 0;
 			static int proto;
@@ -467,12 +511,15 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 			
 			*system_level = proto;
 		}
+#endif
 #endif /* HAVE_SOL_IP */
 		
 		switch(mono_name) {
+#ifdef IP_OPTIONS
 		case SocketOptionName_IPOptions:
 			*system_name = IP_OPTIONS;
 			break;
+#endif
 #ifdef IP_HDRINCL
 		case SocketOptionName_HeaderIncluded:
 			*system_name = IP_HDRINCL;
@@ -603,6 +650,7 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 #ifdef HAVE_SOL_TCP
 		*system_level = SOL_TCP;
 #else
+#ifndef TARGET_VITA
 		if (1) {
 			static int cached = 0;
 			static int proto;
@@ -617,6 +665,7 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 			
 			*system_level = proto;
 		}
+#endif
 #endif /* HAVE_SOL_TCP */
 		
 		switch(mono_name) {
@@ -657,6 +706,9 @@ static gint32 convert_sockopt_level_and_name(MonoSocketOptionLevel mono_level,
 		return(-1);
 	}
 
+	if (*system_level == -1)
+		return 2;
+
 	return(0);
 }
 
@@ -667,8 +719,8 @@ static MonoImage *get_socket_assembly (void)
 	MonoDomain *domain = mono_domain_get ();
 	
 	if (version == NULL) {
-		version = mono_get_runtime_info ()->framework_version;
-		moonlight = !strcmp (version, "2.1");
+		version = mono_get_runtime_info ()->runtime_version;
+		moonlight = !strcmp (version, "moonlight");
 	}
 	
 	if (domain->socket_assembly == NULL) {
@@ -825,6 +877,7 @@ gint32 ves_icall_System_Net_Sockets_SocketException_WSAGetLastError_internal(voi
 gint32 ves_icall_System_Net_Sockets_Socket_Available_internal(SOCKET sock,
 							      gint32 *error)
 {
+#ifdef FIONREAD
 	int ret;
 	int amount;
 	
@@ -839,12 +892,17 @@ gint32 ves_icall_System_Net_Sockets_Socket_Available_internal(SOCKET sock,
 	}
 	
 	return(amount);
+#else
+	*error = 0;
+	g_assert_not_reached ();
+#endif
 }
 
 void ves_icall_System_Net_Sockets_Socket_Blocking_internal(SOCKET sock,
 							   gboolean block,
 							   gint32 *error)
 {
+#ifdef FIONBIO
 	int ret;
 	
 	MONO_ARCH_SAVE_REGS;
@@ -861,6 +919,17 @@ void ves_icall_System_Net_Sockets_Socket_Blocking_internal(SOCKET sock,
 	if(ret==SOCKET_ERROR) {
 		*error = WSAGetLastError ();
 	}
+#elif defined(TARGET_VITA)
+	int optval = !block;
+	int res;
+
+	res = pss_net_setsockopt (sock, PSS_NET_SOL_SOCKET, PSS_NET_SO_NBIO, &optval, sizeof (optval));
+
+	*error = 0;
+#else
+	*error = 0;
+	g_assert_not_reached ();
+#endif
 }
 
 gpointer ves_icall_System_Net_Sockets_Socket_Accept_internal(SOCKET sock,
@@ -2270,10 +2339,14 @@ ves_icall_System_Net_Sockets_Socket_WSAIoctl (SOCKET sock, gint32 code,
 
 	*error = 0;
 	
+#ifdef FIONBIO
 	if (code == FIONBIO) {
 		/* Invalid command. Must use Socket.Blocking */
 		return -1;
 	}
+#else
+	g_assert_not_reached ();
+#endif
 
 	if (input == NULL) {
 		i_buffer = NULL;
@@ -2843,7 +2916,7 @@ MonoBoolean ves_icall_System_Net_Dns_GetHostByName_internal(MonoString *host, Mo
 #if !defined(HAVE_GETHOSTBYNAME2_R)
 	struct addrinfo *info = NULL, hints;
 	char *hostname;
-	
+
 	MONO_ARCH_SAVE_REGS;
 	
 	hostname=mono_string_to_utf8 (host);
@@ -2931,6 +3004,7 @@ MonoBoolean ves_icall_System_Net_Dns_GetHostByName_internal(MonoString *host, Mo
 	struct hostent *he;
 	char *hostname;
 	gboolean add_local_ips = FALSE;
+	gboolean res;
 #ifdef HAVE_SIOCGIFCONF
 	gchar this_hostname [256];
 #endif
@@ -2947,7 +3021,11 @@ MonoBoolean ves_icall_System_Net_Dns_GetHostByName_internal(MonoString *host, Mo
 	}
 #endif
 
-#ifndef HOST_WIN32
+#ifdef TARGET_VITA
+	he = NULL;
+	if (*hostname)	
+		he = _wapi_gethostbyname_vita (hostname);
+#elif defined(HOST_WIN32)
 	he = NULL;
 	if (*hostname)
 		he = _wapi_gethostbyname (hostname);
@@ -2959,7 +3037,13 @@ MonoBoolean ves_icall_System_Net_Dns_GetHostByName_internal(MonoString *host, Mo
 	if (*hostname && he==NULL)
 		return(FALSE);
 
-	return(hostent_to_IPHostEntry(he, h_name, h_aliases, h_addr_list, add_local_ips));
+	res = hostent_to_IPHostEntry(he, h_name, h_aliases, h_addr_list, add_local_ips);
+
+#ifdef TARGET_VITA
+	_wapi_freehostent (he);
+#endif
+
+	return res;
 }
 #endif /* AF_INET6 */
 
@@ -3075,12 +3159,21 @@ extern MonoBoolean ves_icall_System_Net_Dns_GetHostByAddr_internal(MonoString *a
 		return(FALSE);
 	}
 
-	if ((he = gethostbyaddr ((char *) &inaddr, sizeof (inaddr), AF_INET)) == NULL) {
+#ifdef TARGET_VITA
+	he = gethostbyaddr_vita ((char *) &inaddr, sizeof (inaddr), AF_INET);
+#else
+	he = gethostbyaddr ((char *) &inaddr, sizeof (inaddr), AF_INET);
+#endif
+	if (he == NULL) {
 		ret = ipaddr_to_IPHostEntry (address, h_name, h_aliases, h_addr_list);
 	} else {
 		ret = hostent_to_IPHostEntry (he, h_name, h_aliases,
 					      h_addr_list, FALSE);
 	}
+#ifdef TARGET_VITA
+	if (he)
+		_wapi_freehostent (he);
+#endif
 
 	g_free (address);
 	return(ret);

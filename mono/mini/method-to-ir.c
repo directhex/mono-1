@@ -2201,7 +2201,7 @@ emit_imt_argument (MonoCompile *cfg, MonoCallInst *call, MonoInst *imt_arg)
 static MonoJumpInfo *
 mono_patch_info_new (MonoMemPool *mp, int ip, MonoJumpInfoType type, gconstpointer target)
 {
-	MonoJumpInfo *ji = mono_mempool_alloc (mp, sizeof (MonoJumpInfo));
+	MonoJumpInfo *ji = (MonoJumpInfo *) mono_mempool_alloc (mp, sizeof (MonoJumpInfo));
 
 	ji->ip.i = ip;
 	ji->type = type;
@@ -2212,7 +2212,7 @@ mono_patch_info_new (MonoMemPool *mp, int ip, MonoJumpInfoType type, gconstpoint
 
 inline static MonoCallInst *
 mono_emit_call_args (MonoCompile *cfg, MonoMethodSignature *sig, 
-					 MonoInst **args, int calli, int virtual, int tail, int rgctx)
+					 MonoInst **args, int calli, int is_virtual, int tail, int rgctx)
 {
 	MonoCallInst *call;
 #ifdef MONO_ARCH_SOFT_FLOAT
@@ -2222,7 +2222,7 @@ mono_emit_call_args (MonoCompile *cfg, MonoMethodSignature *sig,
 	if (tail)
 		MONO_INST_NEW_CALL (cfg, call, OP_TAILCALL);
 	else
-		MONO_INST_NEW_CALL (cfg, call, ret_type_to_call_opcode (sig->ret, calli, virtual, cfg->generic_sharing_context));
+		MONO_INST_NEW_CALL (cfg, call, ret_type_to_call_opcode (sig->ret, calli, is_virtual, cfg->generic_sharing_context));
 
 	call->args = args;
 	call->signature = sig;
@@ -2260,7 +2260,7 @@ mono_emit_call_args (MonoCompile *cfg, MonoMethodSignature *sig,
 
 		call->vret_var = loada;
 	} else if (!MONO_TYPE_IS_VOID (sig->ret))
-		call->inst.dreg = alloc_dreg (cfg, call->inst.type);
+		call->inst.dreg = alloc_dreg (cfg, (MonoStackType) call->inst.type);
 
 #ifdef MONO_ARCH_SOFT_FLOAT
 	if (COMPILE_SOFT_FLOAT (cfg)) {
@@ -2347,16 +2347,16 @@ mono_emit_calli (MonoCompile *cfg, MonoMethodSignature *sig, MonoInst **args, Mo
 }
 
 static MonoInst*
-emit_get_rgctx_method (MonoCompile *cfg, int context_used, MonoMethod *cmethod, int rgctx_type);
+emit_get_rgctx_method (MonoCompile *cfg, int context_used, MonoMethod *cmethod, MonoRgctxInfoType rgctx_type);
 static MonoInst*
-emit_get_rgctx_klass (MonoCompile *cfg, int context_used, MonoClass *klass, int rgctx_type);
+emit_get_rgctx_klass (MonoCompile *cfg, int context_used, MonoClass *klass, MonoRgctxInfoType rgctx_type);
 
 static MonoInst*
 mono_emit_method_call_full (MonoCompile *cfg, MonoMethod *method, MonoMethodSignature *sig,
-							MonoInst **args, MonoInst *this, MonoInst *imt_arg, MonoInst *rgctx_arg)
+							MonoInst **args, MonoInst *thiz, MonoInst *imt_arg, MonoInst *rgctx_arg)
 {
 	gboolean might_be_remote;
-	gboolean virtual = this != NULL;
+	gboolean is_virtual = thiz != NULL;
 	gboolean enable_for_aot = TRUE;
 	int context_used;
 	MonoCallInst *call;
@@ -2378,9 +2378,9 @@ mono_emit_method_call_full (MonoCompile *cfg, MonoMethod *method, MonoMethodSign
 
 	context_used = mono_method_check_context_used (method);
 
-	might_be_remote = this && sig->hasthis &&
+	might_be_remote = thiz && sig->hasthis &&
 		(method->klass->marshalbyref || method->klass == mono_defaults.object_class) &&
-		!(method->flags & METHOD_ATTRIBUTE_VIRTUAL) && (!MONO_CHECK_THIS (this) || context_used);
+		!(method->flags & METHOD_ATTRIBUTE_VIRTUAL) && (!MONO_CHECK_THIS (thiz) || context_used);
 
 	if (might_be_remote && context_used) {
 		MonoInst *addr;
@@ -2392,19 +2392,19 @@ mono_emit_method_call_full (MonoCompile *cfg, MonoMethod *method, MonoMethodSign
 		return mono_emit_calli (cfg, sig, args, addr, NULL);
 	}
 
-	call = mono_emit_call_args (cfg, sig, args, FALSE, virtual, FALSE, rgctx_arg ? TRUE : FALSE);
+	call = mono_emit_call_args (cfg, sig, args, FALSE, is_virtual, FALSE, rgctx_arg ? TRUE : FALSE);
 
 	if (might_be_remote)
 		call->method = mono_marshal_get_remoting_invoke_with_check (method);
 	else
 		call->method = method;
 	call->inst.flags |= MONO_INST_HAS_METHOD;
-	call->inst.inst_left = this;
+	call->inst.inst_left = thiz;
 
-	if (virtual) {
+	if (is_virtual) {
 		int vtable_reg, slot_reg, this_reg;
 
-		this_reg = this->dreg;
+		this_reg = thiz->dreg;
 
 #ifdef MONO_ARCH_HAVE_CREATE_DELEGATE_TRAMPOLINE
 		if ((method->klass->parent == mono_defaults.multicastdelegate_class) && (!strcmp (method->name, "Invoke"))) {
@@ -2499,7 +2499,7 @@ mono_emit_method_call_full (MonoCompile *cfg, MonoMethod *method, MonoMethodSign
 			}
 
 			call->inst.sreg1 = slot_reg;
-			call->virtual = TRUE;
+			call->is_virtual = TRUE;
 		}
 	}
 
@@ -2512,9 +2512,9 @@ mono_emit_method_call_full (MonoCompile *cfg, MonoMethod *method, MonoMethodSign
 }
 
 MonoInst*
-mono_emit_method_call (MonoCompile *cfg, MonoMethod *method, MonoInst **args, MonoInst *this)
+mono_emit_method_call (MonoCompile *cfg, MonoMethod *method, MonoInst **args, MonoInst *thiz)
 {
-	return mono_emit_method_call_full (cfg, method, mono_method_signature (method), args, this, NULL, NULL);
+	return mono_emit_method_call_full (cfg, method, mono_method_signature (method), args, thiz, NULL, NULL);
 }
 
 MonoInst*
@@ -2953,7 +2953,7 @@ emit_get_rgctx (MonoCompile *cfg, MonoMethod *method, int context_used)
 }
 
 static MonoJumpInfoRgctxEntry *
-mono_patch_info_rgctx_entry_new (MonoMemPool *mp, MonoMethod *method, gboolean in_mrgctx, MonoJumpInfoType patch_type, gconstpointer patch_data, int info_type)
+mono_patch_info_rgctx_entry_new (MonoMemPool *mp, MonoMethod *method, gboolean in_mrgctx, MonoJumpInfoType patch_type, gconstpointer patch_data, MonoRgctxInfoType info_type)
 {
 	MonoJumpInfoRgctxEntry *res = mono_mempool_alloc0 (mp, sizeof (MonoJumpInfoRgctxEntry));
 	res->method = method;
@@ -2974,7 +2974,7 @@ emit_rgctx_fetch (MonoCompile *cfg, MonoInst *rgctx, MonoJumpInfoRgctxEntry *ent
 
 static MonoInst*
 emit_get_rgctx_klass (MonoCompile *cfg, int context_used,
-					  MonoClass *klass, int rgctx_type)
+					  MonoClass *klass, MonoRgctxInfoType rgctx_type)
 {
 	MonoJumpInfoRgctxEntry *entry = mono_patch_info_rgctx_entry_new (cfg->mempool, cfg->current_method, context_used & MONO_GENERIC_CONTEXT_USED_METHOD, MONO_PATCH_INFO_CLASS, klass, rgctx_type);
 	MonoInst *rgctx = emit_get_rgctx (cfg, cfg->current_method, context_used);
@@ -2990,7 +2990,7 @@ emit_get_rgctx_klass (MonoCompile *cfg, int context_used,
  */
 static MonoInst*
 emit_get_rgctx_method (MonoCompile *cfg, int context_used,
-					   MonoMethod *cmethod, int rgctx_type)
+					   MonoMethod *cmethod, MonoRgctxInfoType rgctx_type)
 {
 	if (!context_used) {
 		MonoInst *ins;
@@ -3015,7 +3015,7 @@ emit_get_rgctx_method (MonoCompile *cfg, int context_used,
 
 static MonoInst*
 emit_get_rgctx_field (MonoCompile *cfg, int context_used,
-					  MonoClassField *field, int rgctx_type)
+					  MonoClassField *field, MonoRgctxInfoType rgctx_type)
 {
 	MonoJumpInfoRgctxEntry *entry = mono_patch_info_rgctx_entry_new (cfg->mempool, cfg->current_method, context_used & MONO_GENERIC_CONTEXT_USED_METHOD, MONO_PATCH_INFO_FIELD, field, rgctx_type);
 	MonoInst *rgctx = emit_get_rgctx (cfg, cfg->current_method, context_used);
@@ -4709,7 +4709,7 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
 		}
 		if (cmethod->name [0] == 'g' && strcmp (cmethod->name, "get_IsRunningOnWindows") == 0
 				&& strcmp (cmethod->klass->name, "Environment") == 0) {
-#ifdef TARGET_WIN32
+#if defined(TARGET_WIN32) && !defined(TARGET_PSS)
 	                EMIT_NEW_ICONST (cfg, ins, 1);
 #else
 	                EMIT_NEW_ICONST (cfg, ins, 0);
@@ -4741,7 +4741,7 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
  */
 inline static MonoInst*
 mini_redirect_call (MonoCompile *cfg, MonoMethod *method,  
-					MonoMethodSignature *signature, MonoInst **args, MonoInst *this)
+					MonoMethodSignature *signature, MonoInst **args, MonoInst *thiz)
 {
 	if (method->klass == mono_defaults.string_class) {
 		/* managed string allocation support */
@@ -4758,7 +4758,7 @@ mini_redirect_call (MonoCompile *cfg, MonoMethod *method,
 				return NULL;
 			EMIT_NEW_VTABLECONST (cfg, iargs [0], vtable);
 			iargs [1] = args [0];
-			return mono_emit_method_call (cfg, managed_alloc, iargs, this);
+			return mono_emit_method_call (cfg, managed_alloc, iargs, thiz);
 		}
 	}
 	return NULL;
@@ -5502,12 +5502,12 @@ load_error:
 }
 
 static gboolean
-is_exception_class (MonoClass *class)
+is_exception_class (MonoClass *klass)
 {
-	while (class) {
-		if (class == mono_defaults.exception_class)
+	while (klass) {
+		if (klass == mono_defaults.exception_class)
 			return TRUE;
-		class = class->parent;
+		klass = klass->parent;
 	}
 	return FALSE;
 }
@@ -5738,7 +5738,8 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 	gboolean init_locals, seq_points, skip_dead_blocks;
 	gboolean disable_inline;
 	MonoInst *cached_tls_addr = NULL;
-
+	int comm, comm_handled;
+		
 	disable_inline = is_jit_optimizer_disabled (method);
 
 	/* serialization and xdomain stuff may need access to private fields and methods */
@@ -6261,6 +6262,9 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 
 		if (cfg->verbose_level > 3)
 			printf ("converting (in B%d: stack: %d) %s", bblock->block_num, (int)(sp - stack_start), mono_disasm_code_one (NULL, method, ip, NULL));
+
+		comm = *ip;
+		comm_handled = 1;
 
 		switch (*ip) {
 		case CEE_NOP:
@@ -9446,6 +9450,13 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 			ip += 5;
 			break;
 		}
+		default : 
+			comm_handled = 0;
+			break;
+	}
+//############################################################
+	switch(comm)
+	{ 
 		case CEE_MKREFANY: {
 			MonoInst *loc, *addr;
 
@@ -10538,6 +10549,10 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 			UNVERIFIED;
 
 		default:
+			if(comm_handled)
+			{
+				break;
+			}
 			g_warning ("opcode 0x%02x not handled", *ip);
 			UNVERIFIED;
 		}

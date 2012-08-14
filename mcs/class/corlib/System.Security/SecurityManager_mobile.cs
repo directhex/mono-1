@@ -245,6 +245,61 @@ namespace System.Security {
 			throw new NotImplementedException ();
 		}
 #endif
+		// called by the runtime when CoreCLR is enabled
+
+		private static void ThrowException (Exception ex)
+		{
+			throw ex;
+		}
+
+		// internal - get called by the class loader
+
+		// Called when
+		// - class inheritance
+		// - method overrides
+		private unsafe static bool InheritanceDemand (AppDomain ad, Assembly a, RuntimeDeclSecurityActions *actions)
+		{
+			return false;
+		}
+
+		private static void InheritanceDemandSecurityException (int securityViolation, Assembly a, Type t, MethodInfo method)
+		{
+		}
+
+		// internal - get called at JIT time
+
+		private static void DemandUnmanaged ()
+		{
+		}
+
+		// internal - get called by JIT generated code
+
+		private static void InternalDemand (IntPtr permissions, int length)
+		{
+		}
+
+		private static void InternalDemandChoice (IntPtr permissions, int length)
+		{
+		}
+
+		private unsafe static bool LinkDemand (Assembly a, RuntimeDeclSecurityActions *klass, RuntimeDeclSecurityActions *method)
+		{
+			return false;
+		}
+
+		private static bool LinkDemandUnmanaged (Assembly a)
+		{
+			return false;
+		}
+
+		private static bool LinkDemandFullTrust (Assembly a)
+		{
+			return false;
+		}
+
+		private static void LinkDemandSecurityException (int securityViolation, IntPtr methodHandle)
+		{
+		}
 	}
 }
 

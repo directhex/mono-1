@@ -414,7 +414,9 @@ namespace System.Net
 		internal class ChainValidationHelper {
 			object sender;
 			string host;
+#if SCE_DISABLED
 			static bool is_macosx = System.IO.File.Exists (MSX.OSX509Certificates.SecurityLibrary);
+#endif
 			static X509RevocationMode revocation_mode;
 
 #if MONODROID
@@ -499,6 +501,7 @@ namespace System.Net
 
 				bool result = false;
 				// No certificate root found means no mozroots or monotouch
+#if SCE_DISABLED
 #if !MONOTOUCH
 				if (is_macosx) {
 #endif
@@ -530,6 +533,7 @@ namespace System.Net
 					status11 = 0;
 					errors = 0;
 				}
+#endif
 #endif
 
 				if (policy != null && (!(policy is DefaultCertificatePolicy) || cb == null)) {

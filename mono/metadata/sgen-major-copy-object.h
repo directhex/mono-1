@@ -1,6 +1,7 @@
 /*
  * Copyright 2001-2003 Ximian, Inc
  * Copyright 2003-2010 Novell, Inc.
+ * Copyright 2011 SCEA LLC
  * 
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -35,12 +36,15 @@ extern long long stat_nursery_copy_object_failed_pinned;
 static void
 par_copy_object_no_checks (char *destination, MonoVTable *vt, void *obj, mword objsize, SgenGrayQueue *queue)
 {
+#if defined(GNUC)
 	static const void *copy_labels [] = { &&LAB_0, &&LAB_1, &&LAB_2, &&LAB_3, &&LAB_4, &&LAB_5, &&LAB_6, &&LAB_7, &&LAB_8 };
+#endif
 
 	DEBUG (9, g_assert (vt->klass->inited));
 	DEBUG (9, fprintf (gc_debug_file, " (to %p, %s size: %lu)\n", destination, ((MonoObject*)obj)->vtable->klass->name, (unsigned long)objsize));
 	binary_protocol_copy (obj, destination, vt, objsize);
 
+#if defined(GNUC)
 	if (objsize <= sizeof (gpointer) * 8) {
 		mword *dest = (mword*)destination;
 		goto *copy_labels [objsize / sizeof (gpointer)];
@@ -62,7 +66,9 @@ par_copy_object_no_checks (char *destination, MonoVTable *vt, void *obj, mword o
 		;
 	LAB_0:
 		;
-	} else {
+	} else
+#endif
+	{
 		/*can't trust memcpy doing word copies */
 		mono_gc_memmove (destination + sizeof (mword), (char*)obj + sizeof (mword), objsize - sizeof (mword));
 	}
@@ -97,6 +103,7 @@ copy_object_no_checks (void *obj, SgenGrayQueue *queue)
 			g_assert (objsize <= SGEN_MAX_SMALL_OBJ_SIZE);
 			pin_major_object (obj, queue);
 		}
+		DEBUG (9, fprintf (gc_debug_file, "Pinning object due to failed allocation %p (%s)\n", obj, mono_sgen_safe_name (obj)));
 		mono_sgen_set_pinned_from_failed_allocation (objsize);
 		return obj;
 	}
@@ -106,6 +113,7 @@ copy_object_no_checks (void *obj, SgenGrayQueue *queue)
 
 	/* set the forwarding pointer */
 	SGEN_FORWARD_OBJECT (obj, destination);
+	DEBUG (9, fprintf (gc_debug_file, "Forwarding object %p (%s) -> %p\n", obj, mono_sgen_safe_name (destination), destination));
 
 	return destination;
 }
@@ -145,7 +153,7 @@ nopar_copy_object (void **obj_slot, SgenGrayQueue *queue)
 		return;
 	}
 
-	DEBUG (9, fprintf (gc_debug_file, "Precise copy of %p from %p", obj, obj_slot));
+	DEBUG (9, fprintf (gc_debug_file, "Precise copy of %p from %p\n", obj, obj_slot));
 
 	/*
 	 * Before we can copy the object we must make sure that we are
@@ -154,14 +162,14 @@ nopar_copy_object (void **obj_slot, SgenGrayQueue *queue)
 	 */
 
 	if ((forwarded = SGEN_OBJECT_IS_FORWARDED (obj))) {
-		DEBUG (9, g_assert (((MonoVTable*)SGEN_LOAD_VTABLE(obj))->gc_descr));
+//		DEBUG (9, g_assert (((MonoVTable*)SGEN_LOAD_VTABLE(obj))->gc_descr));
 		DEBUG (9, fprintf (gc_debug_file, " (already forwarded to %p)\n", forwarded));
 		HEAVY_STAT (++stat_nursery_copy_object_failed_forwarded);
 		*obj_slot = forwarded;
 		return;
 	}
 	if (SGEN_OBJECT_IS_PINNED (obj)) {
-		DEBUG (9, g_assert (((MonoVTable*)SGEN_LOAD_VTABLE(obj))->gc_descr));
+//		DEBUG (9, g_assert (((MonoVTable*)SGEN_LOAD_VTABLE(obj))->gc_descr));
 		DEBUG (9, fprintf (gc_debug_file, " (pinned, no change)\n"));
 		HEAVY_STAT (++stat_nursery_copy_object_failed_pinned);
 		return;

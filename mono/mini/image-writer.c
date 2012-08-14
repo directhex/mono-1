@@ -17,7 +17,9 @@
 #ifdef HAVE_STDINT_H
 #include <stdint.h>
 #endif
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #include <ctype.h>
 #include <string.h>
 #ifndef HOST_WIN32
@@ -28,7 +30,9 @@
 #endif
 
 #include <errno.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #include <limits.h>    /* for PAGESIZE */
 #ifndef PAGESIZE
 #define PAGESIZE 4096

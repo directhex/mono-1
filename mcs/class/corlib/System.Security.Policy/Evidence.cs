@@ -39,7 +39,7 @@ using System.Runtime.InteropServices;
 using System.Security.Permissions;
 using System.Security.Cryptography.X509Certificates;
 
-#if !MOONLIGHT
+#if !MOBILE
 using Mono.Security.Authenticode;
 #endif
 

@@ -17,6 +17,7 @@ int    mono_gc_get_generation  (MonoObject *object);
 int    mono_gc_collection_count (int generation);
 int64_t mono_gc_get_used_size   (void);
 int64_t mono_gc_get_heap_size   (void);
+void   mono_gc_set_heap_size_limit (int64_t max_heap, int64_t soft_limit);
 int    mono_gc_invoke_finalizers (void);
 /* heap walking is only valid in the pre-stop-world event callback */
 int    mono_gc_walk_heap        (int flags, MonoGCReferences callback, void *data);

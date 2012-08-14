@@ -80,6 +80,7 @@ namespace MonoTests.System.Threading.Tasks
 		}
 		
 		[Test]
+		[Category ("NotWorking")]
 		public void WaitAllTest()
 		{
 			ParallelTestHelper.Repeat (delegate {

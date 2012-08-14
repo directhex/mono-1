@@ -12,6 +12,9 @@ mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 int
 mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 {
+#if defined(TARGET_VITA)
+	return 0;		// TODO: Write POLL for PSP2
+#else
 	struct timeval tv, *tvptr;
 	int i, fd, events, affected, count;
 	fd_set rfds, wfds, efds;
@@ -110,6 +113,7 @@ mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 	}
 
 	return count;
+#endif
 }
 
 #endif

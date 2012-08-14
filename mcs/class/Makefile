@@ -142,24 +142,15 @@ moonlight_raw_dirs := \
 mobile_dirs := \
 	corlib	\
 	System	\
-	Mono.CompilerServices.SymbolWriter	\
 	System.Core	\
 	System.XML	\
-	Mono.Security	\
 	System	\
 	I18N		\
 	System.Xml.Linq	\
 	System.Runtime.Serialization	\
 	System.ServiceModel	\
 	System.ServiceModel.Web	\
-	System.Json	\
-	System.Web.Services	\
-	Mono.Data.Tds	\
-	System.Transactions	\
-	System.Data	\
-	Mono.Cairo	\
-	Mono.Data.Sqlite	\
-	System.Data.Services.Client
+	System.Web.Services
 
 net_3_5_only_dirs := \
 	Microsoft.Build.Framework	\

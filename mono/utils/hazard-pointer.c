@@ -158,7 +158,8 @@ mono_hazard_pointer_get (void)
 
 	if (small_id < 0) {
 		static MonoThreadHazardPointers emerg_hazard_table;
-		g_warning ("Thread %p may have been prematurely finalized", (gpointer)mono_native_thread_id_get ());
+		// FIXME: getting too many of these with the stop/start lock/unlock code for vita
+		//g_warning ("Thread %p may have been prematurely finalized", (gpointer)mono_native_thread_id_get ());
 		return &emerg_hazard_table;
 	}
 

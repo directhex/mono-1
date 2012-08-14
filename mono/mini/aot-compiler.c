@@ -31,7 +31,9 @@
 #ifdef HAVE_STDINT_H
 #include <stdint.h>
 #endif
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #include <ctype.h>
 #include <string.h>
 #ifndef HOST_WIN32
@@ -42,7 +44,9 @@
 #endif
 
 #include <errno.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 
 #include <mono/metadata/tabledefs.h>
@@ -212,6 +216,8 @@ typedef struct MonoAotCompile {
 	char *assembly_name_sym;
 	GHashTable *plt_entry_debug_sym_cache;
 	gboolean thumb_mixed, need_no_dead_strip, need_pt_gnu_stack;
+	gboolean use_arm_inst_directive, use_arm_arm_directive, use_arm_unwind;
+	int instr_size;
 } MonoAotCompile;
 
 typedef struct {
@@ -570,6 +576,8 @@ arch_init (MonoAotCompile *acfg)
 	acfg->llc_args = g_string_new ("");
 	acfg->as_args = g_string_new ("");
 
+	acfg->instr_size = 1;
+
 	/*
 	 * The prefix LLVM likes to put in front of symbol names on darwin.
 	 * The mach-os specs require this for globals, but LLVM puts them in front of all
@@ -589,8 +597,17 @@ arch_init (MonoAotCompile *acfg)
 		g_string_append (acfg->llc_args, " -soft-float");
 #endif
 	}
+
 	if (acfg->aot_opts.mtriple && strstr (acfg->aot_opts.mtriple, "thumb"))
 		acfg->thumb_mixed = TRUE;
+
+	if (acfg->aot_opts.mtriple && !strstr (acfg->aot_opts.mtriple, "darwin")) {
+		/* Use GAS directives if supported */
+		acfg->use_arm_arm_directive = TRUE;
+		acfg->use_arm_inst_directive = TRUE;
+		acfg->use_arm_unwind = TRUE;
+		acfg->instr_size = 4;
+	}
 
 	if (acfg->aot_opts.mtriple)
 		mono_arch_set_target (acfg->aot_opts.mtriple);
@@ -680,6 +697,9 @@ arch_emit_direct_call (MonoAotCompile *acfg, const char *target, int *call_size)
  */
 
 #ifdef MONO_ARCH_AOT_SUPPORTED
+
+static void arch_emit_code_bytes (MonoAotCompile *acfg, guint8 *code, int nbytes);
+
 /*
  * arch_emit_got_offset:
  *
@@ -715,7 +735,7 @@ arch_emit_got_offset (MonoAotCompile *acfg, guint8 *code, int *code_size)
 	*code_size = 8;
 #else
 	guint32 offset = mono_arch_get_patch_offset (code);
-	emit_bytes (acfg, code, offset);
+	arch_emit_code_bytes (acfg, code, offset);
 	emit_symbol_diff (acfg, acfg->got_symbol, ".", offset);
 
 	*code_size = offset + 4;
@@ -733,7 +753,7 @@ static void
 arch_emit_got_access (MonoAotCompile *acfg, guint8 *code, int got_slot, int *code_size)
 {
 	/* Emit beginning of instruction */
-	emit_bytes (acfg, code, mono_arch_get_patch_offset (code));
+	arch_emit_code_bytes (acfg, code, mono_arch_get_patch_offset (code));
 
 	/* Emit the offset */
 #ifdef TARGET_AMD64
@@ -1630,6 +1650,117 @@ arch_emit_autoreg (MonoAotCompile *acfg, char *symbol)
 #else
 #endif
 }
+
+/*
+ * arch_emit_code_bytes:
+ *   Emit NBYTES bytes of machine code starting from CODE.
+ */
+static void
+arch_emit_code_bytes (MonoAotCompile *acfg, guint8 *code, int nbytes)
+{
+	if (acfg->use_arm_inst_directive) {
+		int i;
+
+		g_assert (nbytes % 4 == 0);
+		img_writer_emit_unset_mode (acfg->w);
+		for (i = 0; i < nbytes / 4; ++i)
+			fprintf (acfg->fp, "\n.inst 0x%x", ((guint32*)code) [i]);
+		fprintf (acfg->fp, "\n");
+	} else {
+		emit_bytes (acfg, code, nbytes);
+	}
+}
+
+/*
+ * arch_emit_func_begin:
+ *
+ *   Emit arch specific assembly for the start of a function.
+ */
+static void
+arch_emit_func_begin (MonoAotCompile *acfg, GSList *unwind_ops)
+{
+#ifdef TARGET_ARM
+	if (acfg->use_arm_unwind) {
+		MonoUnwindOp *op;
+		GSList *l;
+		int i, prev_offset;
+		static const char * rnames[] = {
+			"r0", "r1", "r2", "r3", "v1",
+			"v2", "v3", "v4", "v5", "v6",
+			"v7", "fp", "ip", "sp", "lr",
+			"pc"
+		};
+
+		img_writer_emit_unset_mode (acfg->w);
+		fprintf (acfg->fp, "\t.fnstart\n");
+
+		/*
+		 * Convert the DWARF unwind info into GAS unwind directives.
+		 */
+		if (!unwind_ops)
+			return;
+
+		/* Should start with cfa=sp */
+		l = unwind_ops;
+		op = l->data;
+		g_assert (op->op == DW_CFA_def_cfa);
+		g_assert (op->reg == ARMREG_SP);
+		/* Followed by a def_cfa_offset */
+		l = l->next;
+		g_assert (l);
+		op = l->data;
+		g_assert (op->op == DW_CFA_def_cfa_offset);
+		prev_offset = op->val;
+		/* Followed by register saves */
+		fprintf (acfg->fp, "\t.save {");
+		i = 0;
+		while (TRUE) {
+			l = l->next;
+			if (!l)
+				break;
+			op = l->data;
+			if (op->op != DW_CFA_offset)
+				break;
+
+			// FIXME: fp regs ?
+			fprintf (acfg->fp, "%s%s", i > 0 ? ", " : "", rnames [op->reg]);
+			i ++;
+		}
+		fprintf (acfg->fp, "}\n");
+		/* Followed by a def_cfa_offset */
+		if (!l)
+			return;
+		op = l->data;
+		g_assert (op->op == DW_CFA_def_cfa_offset);
+		fprintf (acfg->fp, "\t.pad #%d\n", op->val - prev_offset);
+		/* fp = sp */
+		l = l->next;
+		if (!l)
+			return;
+		op = l->data;
+		g_assert (op->op == DW_CFA_def_cfa_register);
+		g_assert (op->reg == ARMREG_FP);
+		fprintf (acfg->fp, "\t.setfp fp, sp, #0\n");
+		l = l->next;
+		g_assert (!l);
+	}
+#endif
+}
+
+/*
+ * arch_emit_func_end:
+ *
+ *   Emit arch specific assembly for the end of a function.
+ */
+static void
+arch_emit_func_end (MonoAotCompile *acfg)
+{
+	if (acfg->use_arm_unwind) {
+		img_writer_emit_unset_mode (acfg->w);
+		fprintf (acfg->fp, "\t.fnend\n");
+	}
+}
+
 
 /* END OF ARCH SPECIFIC CODE */
 
@@ -3634,7 +3765,7 @@ is_direct_callable (MonoAotCompile *acfg, MonoMethod *method, MonoJumpInfo *patc
  * since trampolines are needed to make PTL work.
  */
 static void
-emit_and_reloc_code (MonoAotCompile *acfg, MonoMethod *method, guint8 *code, guint32 code_len, MonoJumpInfo *relocs, gboolean got_only)
+emit_and_reloc_code (MonoAotCompile *acfg, MonoMethod *method, guint8 *code, guint32 code_len, MonoJumpInfo *relocs, GSList *unwind_ops, gboolean got_only)
 {
 	int i, pindex, start_index, method_index;
 	GPtrArray *patches;
@@ -3655,6 +3786,8 @@ emit_and_reloc_code (MonoAotCompile *acfg, MonoMethod *method, guint8 *code, gui
 	for (patch_info = relocs; patch_info; patch_info = patch_info->next)
 		g_ptr_array_add (patches, patch_info);
 	g_ptr_array_sort (patches, compare_patches);
+
+	arch_emit_func_begin (acfg, unwind_ops);
 
 	start_index = 0;
 	for (i = 0; i < code_len; i++) {
@@ -3746,13 +3879,16 @@ emit_and_reloc_code (MonoAotCompile *acfg, MonoMethod *method, guint8 *code, gui
 
 			/* Try to emit multiple bytes at once */
 			if (pindex < patches->len && patch_info->ip.i > i) {
-				emit_bytes (acfg, code + i, patch_info->ip.i - i);
+				arch_emit_code_bytes (acfg, code + i, patch_info->ip.i - i);
 				i = patch_info->ip.i - 1;
 			} else {
-				emit_bytes (acfg, code + i, 1);
+				arch_emit_code_bytes (acfg, code + i, acfg->instr_size);
+				i += acfg->instr_size - 1;
 			}
 		}
 	}
+
+	arch_emit_func_end (acfg);
 }
 
 /*
@@ -3864,7 +4000,7 @@ emit_method_code (MonoAotCompile *acfg, MonoCompile *cfg)
 
 	acfg->cfgs [method_index]->got_offset = acfg->got_offset;
 
-	emit_and_reloc_code (acfg, method, code, cfg->code_len, cfg->patch_info, FALSE);
+	emit_and_reloc_code (acfg, method, code, cfg->code_len, cfg->patch_info, cfg->unwind_ops, FALSE);
 
 	emit_line (acfg);
 
@@ -4688,7 +4824,7 @@ emit_trampoline (MonoAotCompile *acfg, int got_offset, MonoTrampInfo *info)
 	 * The code should access everything through the GOT, so we pass
 	 * TRUE here.
 	 */
-	emit_and_reloc_code (acfg, NULL, code, code_size, ji, TRUE);
+	emit_and_reloc_code (acfg, NULL, code, code_size, ji, unwind_ops, TRUE);
 
 	emit_symbol_size (acfg, start_symbol, ".");
 
@@ -7494,6 +7630,8 @@ mono_compile_assembly (MonoAssembly *ass, guint32 opts, const char *aot_options)
 		emit_label (acfg, symbol);
 		emit_zero_bytes (acfg, 16);
 
+		fprintf (acfg->fp, ".arm\n");
+	} else if (acfg->use_arm_arm_directive) {
 		fprintf (acfg->fp, ".arm\n");
 	}
 

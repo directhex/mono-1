@@ -13,7 +13,9 @@
 #include <config.h>
 #include <glib.h>
 #include <string.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #include <mono/metadata/gc-internal.h>
 
@@ -38,6 +40,18 @@
 #include <metadata/threads.h>
 #include <metadata/profiler-private.h>
 #include <mono/metadata/coree.h>
+
+//--- debug -------------------------------------------------------------------
+#if 0
+#define PRINTF(...)			printf( "[domain] " __VA_ARGS__ )
+#define ERR_PRINTF(...)		printf( "[domain:ERROR] " __VA_ARGS__ )
+#define TRACE				printf( "[domain:TRACE] %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ )
+#else
+#define PRINTF(...)
+#define ERR_PRINTF(...)
+#define TRACE
+#endif
+//-----------------------------------------------------------------------------
 
 /* #define DEBUG_DOMAIN_UNLOAD */
 
@@ -127,6 +141,7 @@ static const MonoRuntimeInfo supported_runtimes[] = {
 	{"v4.0.30128","4.0", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
 	{"v4.0.30319","4.5", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
 	{"moonlight", "2.1", { {2,0,5,0},    {9,0,0,0}, { 3, 5, 0, 0 } }    },
+	{"mobile", "2.1", { {2,0,5,0},    {9,0,0,0}, { 3, 5, 0, 0 } }    },
 };
 
 

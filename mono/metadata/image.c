@@ -38,7 +38,9 @@
 #include <mono/metadata/verify-internals.h>
 #include <mono/metadata/verify.h>
 #include <sys/types.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -992,15 +994,63 @@ invalid_image:
 	return NULL;
 }
 
+typedef struct _CryptoContext {
+	int handle;
+	int valid;
+	int size;
+	int type;
+} CryptoContext;
+
+#if defined(PLATFORM_ANDROID)
+#include "android-bridge.h"
+#define PSS_USE_CRYPTO
+#endif
+
+#if defined(TARGET_VITA)
+#include "bridge.h"
+#define PSS_USE_CRYPTO
+#endif
+
+static int
+open_encrypted (CryptoContext *context, const char *path)
+{
+#ifdef PSS_USE_CRYPTO
+	return pss_crypto_open (context, path);
+#else
+	context->valid = 0;
+	return 0;
+#endif
+}
+
+static char*
+load_encrypted (CryptoContext *context)
+{
+#ifdef PSS_USE_CRYPTO
+	return pss_crypto_read (context);
+#else
+	return NULL;
+#endif
+}
+
+static void
+close_encrypted (CryptoContext *context)
+{
+#ifdef PSS_USE_CRYPTO
+	pss_crypto_close (context);
+#endif
+	return;
+}
+
 static MonoImage *
 do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
 		    gboolean care_about_cli, gboolean care_about_pecoff, gboolean refonly)
 {
 	MonoCLIImageInfo *iinfo;
 	MonoImage *image;
-	MonoFileMap *filed;
+	MonoFileMap *filed = NULL;
+	CryptoContext context;
 
-	if ((filed = mono_file_map_open (fname)) == NULL){
+	if (!open_encrypted (&context, fname) && (filed = mono_file_map_open (fname)) == NULL){
 		if (IS_PORTABILITY_SET) {
 			gchar *ffname = mono_portability_find_file (fname, TRUE);
 			if (ffname) {
@@ -1018,10 +1068,22 @@ do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
 
 	image = g_new0 (MonoImage, 1);
 	image->raw_buffer_used = TRUE;
-	image->raw_data_len = mono_file_map_size (filed);
-	image->raw_data = mono_file_map (image->raw_data_len, MONO_MMAP_READ|MONO_MMAP_PRIVATE, mono_file_map_fd (filed), 0, &image->raw_data_handle);
+	image->raw_data_len = context.valid? context.size: mono_file_map_size (filed);
+	if (context.valid) {
+		image->raw_data = load_encrypted (&context);
+		image->raw_data_allocated = TRUE;
+		image->raw_buffer_used = FALSE;
+	} else {
+#if TARGET_VITA
+		image->raw_data = mono_file_map_file (image->raw_data_len, MONO_MMAP_READ|MONO_MMAP_PRIVATE, filed, 0, &image->raw_data_handle);
+#else
+		image->raw_data = mono_file_map (image->raw_data_len, MONO_MMAP_READ|MONO_MMAP_PRIVATE, mono_file_map_fd (filed), 0, &image->raw_data_handle);
+#endif
+	}
 	if (!image->raw_data) {
-		mono_file_map_close (filed);
+		close_encrypted (&context);
+		if (filed)
+			mono_file_map_close (filed);
 		g_free (image);
 		if (status)
 			*status = MONO_IMAGE_IMAGE_INVALID;
@@ -1035,7 +1097,9 @@ do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
 	/* if MONO_SECURITY_MODE_CORE_CLR is set then determine if this image is platform code */
 	image->core_clr_platform_code = mono_security_core_clr_determine_platform_image (image);
 
-	mono_file_map_close (filed);
+	close_encrypted (&context);
+	if (filed)
+		mono_file_map_close (filed);
 	return do_mono_image_load (image, status, care_about_cli, care_about_pecoff);
 }
 
@@ -1158,6 +1222,8 @@ mono_image_open_from_data_with_name (char *data, guint32 data_len, gboolean need
 	iinfo = g_new0 (MonoCLIImageInfo, 1);
 	image->image_info = iinfo;
 	image->ref_only = refonly;
+	/* if MONO_SECURITY_MODE_CORE_CLR is set then determine if this image is platform code */
+	image->core_clr_platform_code = mono_security_core_clr_determine_platform_image (image);
 
 	image = do_mono_image_load (image, status, TRUE, TRUE);
 	if (image == NULL)

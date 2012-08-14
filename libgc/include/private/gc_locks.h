@@ -76,12 +76,6 @@
 #    define LOCK() RT0u__inCritical++
 #    define UNLOCK() RT0u__inCritical--
 #  endif
-#  ifdef SN_TARGET_PS3
-#    include <pthread.h>
-     extern pthread_mutex_t GC_allocate_ml;
-#      define LOCK()   pthread_mutex_lock(&GC_allocate_ml)
-#      define UNLOCK() pthread_mutex_unlock(&GC_allocate_ml)
-#  endif
 #  ifdef GC_SOLARIS_THREADS
 #    include <thread.h>
 #    include <signal.h>
@@ -93,7 +87,7 @@
 /* Try to define GC_TEST_AND_SET and a matching GC_CLEAR for spin lock	*/
 /* acquisition and release.  We need this for correct operation of the	*/
 /* incremental GC.							*/
-#  ifdef __GNUC__
+#  if defined(__GNUC__) || defined(__SNC__) //>a Auday: PSP2 uses SNC althouth it's quite compatible with GNU
 #    if defined(I386)
        inline static int GC_test_and_set(volatile unsigned int *addr) {
 	  int oldval;
@@ -222,7 +216,7 @@
         }
 #       define GC_CLEAR_DEFINED
 #    endif /* ALPHA */
-#    ifdef ARM32
+#    ifdef ARM32 
         inline static int GC_test_and_set(volatile unsigned int *addr) {
 #if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7__)
           int ret, tmp;
@@ -394,10 +388,10 @@
 #    endif
 #    define GC_CLEAR_DEFINED
 #  endif /* !GC_CLEAR_DEFINED */
-
-#  if !defined(GC_TEST_AND_SET_DEFINED)
+//>t  Auday: Forcing it to have PThread even if we provided test and set
+//	#  if !defined(GC_TEST_AND_SET_DEFINED)
 #    define USE_PTHREAD_LOCKS
-#  endif
+//> #  endif
 
 #  if defined(GC_PTHREADS) && !defined(GC_SOLARIS_THREADS) \
       && !defined(GC_WIN32_THREADS)
@@ -682,7 +676,7 @@
       /* be held for long periods, if it is held at all.  Thus spinning	*/
       /* and sleeping for fixed periods are likely to result in 	*/
       /* significant wasted time.  We thus rely mostly on queued locks. */
-#     define USE_SPIN_LOCK
+//>x Auday #     define USE_SPIN_LOCK
       extern volatile unsigned int GC_allocate_lock;
       extern void GC_lock(void);
 	/* Allocation lock holder.  Only set if acquired by client through */

@@ -54,7 +54,7 @@
 # endif
 
 # include <stdio.h>
-# if defined(MSWINCE) || defined (SN_TARGET_PS3)
+# if defined(MSWINCE)
 #   define SIGSEGV 0 /* value is irrelevant */
 # else
 #   include <signal.h>
@@ -607,7 +607,7 @@ void GC_enable_signals(void)
 #  if !defined(PCR) && !defined(AMIGA) && !defined(MSWIN32) \
       && !defined(MSWINCE) \
       && !defined(MACOS) && !defined(DJGPP) && !defined(DOS4GW) \
-      && !defined(NOSYS) && !defined(ECOS) && !defined(SN_TARGET_PS3)
+      && !defined(NOSYS) && !defined(ECOS)
 
 #   if defined(sigmask) && !defined(UTS4) && !defined(HURD)
 	/* Use the traditional BSD interface */
@@ -1662,7 +1662,7 @@ void GC_register_data_segments()
 
 # if !defined(OS2) && !defined(PCR) && !defined(AMIGA) \
 	&& !defined(MSWIN32) && !defined(MSWINCE) \
-	&& !defined(MACOS) && !defined(DOS4GW) && !defined(SN_TARGET_PS3)
+	&& !defined(MACOS) && !defined(DOS4GW)
 
 # ifdef SUNOS4
     extern caddr_t sbrk();
@@ -2256,16 +2256,6 @@ void GC_default_push_other_roots GC_PROTO((void))
 }
 
 # endif /* GC_SOLARIS_THREADS || GC_PTHREADS */
-#ifdef SN_TARGET_PS3
-void GC_default_push_other_roots GC_PROTO((void))
-{
-	printf ("WARNING WARNING WARNING\nGC_default_push_other_roots is not implemented\n");
-}
-void GC_push_thread_structures GC_PROTO((void))
-{
-	printf ("WARNING WARNING WARNING\nGC_default_push_thread_structures is not implemented\n");
-}
-#endif
 
 void (*GC_push_other_roots) GC_PROTO((void)) = GC_default_push_other_roots;
 

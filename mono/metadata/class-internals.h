@@ -213,48 +213,6 @@ typedef struct {
 
 #define MONO_SIZEOF_CLASS_RUNTIME_INFO (sizeof (MonoClassRuntimeInfo) - MONO_ZERO_LEN_ARRAY * SIZEOF_VOID_P)
 
-enum {
-	MONO_RGCTX_INFO_STATIC_DATA,
-	MONO_RGCTX_INFO_KLASS,
-	MONO_RGCTX_INFO_VTABLE,
-	MONO_RGCTX_INFO_TYPE,
-	MONO_RGCTX_INFO_REFLECTION_TYPE,
-	MONO_RGCTX_INFO_METHOD,
-	MONO_RGCTX_INFO_GENERIC_METHOD_CODE,
-	MONO_RGCTX_INFO_CLASS_FIELD,
-	MONO_RGCTX_INFO_METHOD_RGCTX,
-	MONO_RGCTX_INFO_METHOD_CONTEXT,
-	MONO_RGCTX_INFO_REMOTING_INVOKE_WITH_CHECK,
-	MONO_RGCTX_INFO_METHOD_DELEGATE_CODE,
-	MONO_RGCTX_INFO_CAST_CACHE
-};
-
-typedef struct _MonoRuntimeGenericContextOtherInfoTemplate {
-	int info_type;
-	gpointer data;
-	struct _MonoRuntimeGenericContextOtherInfoTemplate *next;
-} MonoRuntimeGenericContextOtherInfoTemplate;
-
-typedef struct {
-	MonoClass *next_subclass;
-	MonoRuntimeGenericContextOtherInfoTemplate *other_infos;
-	GSList *method_templates;
-} MonoRuntimeGenericContextTemplate;
-
-typedef struct {
-	MonoVTable *class_vtable; /* must be the first element */
-	MonoGenericInst *method_inst;
-	gpointer infos [MONO_ZERO_LEN_ARRAY];
-} MonoMethodRuntimeGenericContext;
-
-#define MONO_SIZEOF_METHOD_RUNTIME_GENERIC_CONTEXT (sizeof (MonoMethodRuntimeGenericContext) - MONO_ZERO_LEN_ARRAY * SIZEOF_VOID_P)
-
-#define MONO_RGCTX_SLOT_MAKE_RGCTX(i)	(i)
-#define MONO_RGCTX_SLOT_MAKE_MRGCTX(i)	((i) | 0x80000000)
-#define MONO_RGCTX_SLOT_INDEX(s)	((s) & 0x7fffffff)
-#define MONO_RGCTX_SLOT_IS_MRGCTX(s)	(((s) & 0x80000000) ? TRUE : FALSE)
-
-
 #define MONO_CLASS_PROP_EXCEPTION_DATA 0
 
 /* 
@@ -890,13 +848,13 @@ void
 mono_class_setup_supertypes (MonoClass *klass) MONO_INTERNAL;
 
 MonoMethod*
-mono_class_get_method_by_index (MonoClass *class, int index) MONO_INTERNAL;
+mono_class_get_method_by_index (MonoClass *klass, int index) MONO_INTERNAL;
 
 MonoMethod*
-mono_class_get_inflated_method (MonoClass *class, MonoMethod *method) MONO_INTERNAL;
+mono_class_get_inflated_method (MonoClass *klass, MonoMethod *method) MONO_INTERNAL;
 
 MonoMethod*
-mono_class_get_vtable_entry (MonoClass *class, int offset) MONO_INTERNAL;
+mono_class_get_vtable_entry (MonoClass *klass, int offset) MONO_INTERNAL;
 
 GPtrArray*
 mono_class_get_implemented_interfaces (MonoClass *klass, MonoError *error) MONO_INTERNAL;
@@ -969,7 +927,7 @@ void
 mono_install_get_class_from_name (MonoGetClassFromName func) MONO_INTERNAL;
 
 MonoGenericContext*
-mono_class_get_context (MonoClass *class) MONO_INTERNAL;
+mono_class_get_context (MonoClass *klass) MONO_INTERNAL;
 
 MonoMethodSignature*
 mono_method_signature_checked (MonoMethod *m, MonoError *err) MONO_INTERNAL;
@@ -1194,7 +1152,7 @@ char*
 mono_type_get_name_full (MonoType *type, MonoTypeNameFormat format) MONO_INTERNAL;
 
 char*
-mono_type_get_full_name (MonoClass *class) MONO_INTERNAL;
+mono_type_get_full_name (MonoClass *klass) MONO_INTERNAL;
 
 MonoArrayType *mono_dup_array_type (MonoImage *image, MonoArrayType *a) MONO_INTERNAL;
 MonoMethodSignature *mono_metadata_signature_deep_dup (MonoImage *image, MonoMethodSignature *sig) MONO_INTERNAL;
@@ -1252,7 +1210,7 @@ MonoMethod*
 mono_method_search_in_array_class (MonoClass *klass, const char *name, MonoMethodSignature *sig) MONO_INTERNAL;
 
 void
-mono_class_setup_interface_id (MonoClass *class) MONO_INTERNAL;
+mono_class_setup_interface_id (MonoClass *klass) MONO_INTERNAL;
 
 MonoGenericContainer*
 mono_class_get_generic_container (MonoClass *klass) MONO_INTERNAL;
@@ -1270,7 +1228,7 @@ MonoClassField*
 mono_class_get_field_from_name_full (MonoClass *klass, const char *name, MonoType *type) MONO_INTERNAL;
 
 MonoVTable*
-mono_class_vtable_full (MonoDomain *domain, MonoClass *class, gboolean raise_on_error) MONO_INTERNAL;
+mono_class_vtable_full (MonoDomain *domain, MonoClass *klass, gboolean raise_on_error) MONO_INTERNAL;
 
 gboolean
 mono_class_is_assignable_from_slow (MonoClass *target, MonoClass *candidate) MONO_INTERNAL;
@@ -1290,12 +1248,12 @@ MonoClassField*
 mono_class_get_fields_lazy (MonoClass* klass, gpointer *iter) MONO_INTERNAL;
 
 gboolean
-mono_class_check_vtable_constraints (MonoClass *class, GList *in_setup) MONO_INTERNAL;
+mono_class_check_vtable_constraints (MonoClass *klass, GList *in_setup) MONO_INTERNAL;
 
 gboolean
 mono_class_has_finalizer (MonoClass *klass) MONO_INTERNAL;
 
 void
-mono_unload_interface_id (MonoClass *class) MONO_INTERNAL;
+mono_unload_interface_id (MonoClass *klass) MONO_INTERNAL;
 
 #endif /* __MONO_METADATA_CLASS_INTERBALS_H__ */

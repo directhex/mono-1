@@ -722,7 +722,7 @@
 #	     if defined(__GLIBC__)&& __GLIBC__>=2
 #              define SEARCH_FOR_DATA_START
 #	     else /* !GLIBC2 */
-#              if defined(PLATFORM_ANDROID)
+#              if defined(__ANDROID__)
 #                      define __environ environ
 #              endif
                extern char **__environ;
@@ -896,20 +896,6 @@
 #     define DATASTART GC_data_start
 #     define DYNAMIC_LOADING
 #   endif
-#   ifdef SN_TARGET_PS3
-#       define NO_GETENV
-#       define CPP_WORDSZ 32
-#       define ALIGNMENT 4
-        extern int _end [];
-//       extern int _dso_handle[];
-		extern int __bss_start;
-
-#       define DATAEND (_end)
-#       define DATASTART (__bss_start)
-#       define STACKBOTTOM ((ptr_t) ps3_get_stack_bottom ())
-#       define USE_GENERIC_PUSHREGS
-#   endif
-
 #   ifdef NOSYS
 #     define ALIGNMENT 4
 #     define OS_TYPE "NOSYS"
@@ -1945,7 +1931,7 @@
 #	     include <features.h>
 #	     if defined(__GLIBC__) && __GLIBC__ >= 2
 #		 define SEARCH_FOR_DATA_START
-#	     elif defined(PLATFORM_ANDROID)
+#	     elif defined(__ANDROID__)
 #		 define SEARCH_FOR_DATA_START
 #	     else
      	         extern char **__environ;
@@ -2326,7 +2312,7 @@
 
 # if defined(PCR) || defined(SRC_M3) || \
 		defined(GC_SOLARIS_THREADS) || defined(GC_WIN32_THREADS) || \
-		defined(GC_PTHREADS) || defined(SN_TARGET_PS3)
+		defined(GC_PTHREADS)
 #   define THREADS
 # endif
 
@@ -2477,13 +2463,8 @@
 			  GC_amiga_get_mem((size_t)bytes + GC_page_size) \
 			  + GC_page_size-1)
 #	      else
-#           if defined(SN_TARGET_PS3)
-	           extern void *ps3_get_mem (size_t size);
-#              define GET_MEM(bytes) (struct hblk*) ps3_get_mem (bytes)
-#           else
 		extern ptr_t GC_unix_get_mem(word size);
-#               define GET_MEM(bytes) (struct hblk *)GC_unix_get_mem(bytes)
-#endif
+#		define GET_MEM(bytes) (struct hblk *)GC_unix_get_mem(bytes)
 #	      endif
 #	    endif
 #	  endif

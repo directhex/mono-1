@@ -41,6 +41,7 @@
 #include <mono/utils/mono-logger-internal.h>
 #include <mono/utils/mono-mmap.h>
 #include <mono/utils/dtrace.h>
+#include <mono/utils/mono-threads.h>
 
 #include "mini.h"
 #include <string.h>
@@ -96,22 +97,37 @@ SIG_HANDLER_SIGNATURE (mono_chain_signal)
 	return FALSE;
 }
 
-static HANDLE win32_main_thread;
 static MMRESULT win32_timer;
 
 static void CALLBACK
 win32_time_proc (UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
 {
-	CONTEXT context;
+	THREAD_INFO_TYPE *info;
 
-	context.ContextFlags = CONTEXT_CONTROL;
-	if (GetThreadContext (win32_main_thread, &context)) {
+	FOREACH_THREAD_SAFE (info) {
+		DWORD id = mono_thread_info_get_tid (info);
+		HANDLE handle = OpenThread (READ_CONTROL | THREAD_GET_CONTEXT, FALSE, id);
+		CONTEXT context;
+
+		if (id == GetCurrentThreadId ()) {
+			CloseHandle (handle);
+			continue;
+		}
+
+		g_assert (id != GetCurrentThreadId ());
+
+		context.ContextFlags = CONTEXT_CONTROL;
+
+		if (GetThreadContext (handle, &context)) {
 #ifdef _WIN64
-		mono_profiler_stat_hit ((guchar *) context.Rip, &context);
+			mono_profiler_stat_hit ((guchar *) context.Rip, id, &context);
 #else
-		mono_profiler_stat_hit ((guchar *) context.Eip, &context);
+			mono_profiler_stat_hit ((guchar *) context.Eip, id, &context);
 #endif
-	}
+		}
+
+		CloseHandle (handle);
+	} END_FOREACH_THREAD_SAFE
 }
 
 void
@@ -125,9 +141,6 @@ mono_runtime_setup_stat_profiler (void)
 
 	inited = 1;
 	if (timeGetDevCaps (&timecaps, sizeof (timecaps)) != TIMERR_NOERROR)
-		return;
-
-	if ((win32_main_thread = OpenThread (READ_CONTROL | THREAD_GET_CONTEXT, FALSE, GetCurrentThreadId ())) == NULL)
 		return;
 
 	if (timeBeginPeriod (1) != TIMERR_NOERROR)

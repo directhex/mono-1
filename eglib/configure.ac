@@ -112,7 +112,13 @@ AC_CHECK_SIZEOF(long)
 AC_CHECK_SIZEOF(long long)
 AC_CHECK_FUNCS(strndup strlcpy stpcpy getpwuid_r strtok_r rewinddir vasprintf)
 AM_CONDITIONAL(NEED_VASPRINTF, test x$have_vasprintf = x )
-AM_ICONV()
+
+AC_ARG_ENABLE(libiconv, [  --enable-libiconv  Enable libiconv (on by default)], enable_libiconv=$enableval, enable_libiconv=yes)
+if test x$enable_libiconv = xyes; then
+  AM_ICONV()
+  AC_CHECK_HEADERS(iconv.h localcharset.h)
+fi
+
 AC_SEARCH_LIBS(sqrtf, m)
 
 # nanosleep may not be part of libc, also search it in other libraries
@@ -141,7 +147,7 @@ if test "x$have_iso_varargs" = "xyes"; then
 fi
 AC_SUBST(G_HAVE_ISO_VARARGS)
 
-AC_CHECK_HEADERS(getopt.h sys/time.h sys/wait.h pwd.h langinfo.h iconv.h localcharset.h sys/types.h)
+AC_CHECK_HEADERS(getopt.h sys/time.h sys/wait.h pwd.h langinfo.h sys/types.h)
 AC_CHECK_HEADER(alloca.h, [HAVE_ALLOCA_H=1], [HAVE_ALLOCA_H=0])
 AC_SUBST(HAVE_ALLOCA_H)
 

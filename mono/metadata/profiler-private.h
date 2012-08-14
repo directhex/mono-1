@@ -36,7 +36,7 @@ void mono_profiler_method_end_invoke   (MonoMethod *method) MONO_INTERNAL;
 void mono_profiler_code_transition (MonoMethod *method, int result) MONO_INTERNAL;
 void mono_profiler_allocation      (MonoObject *obj, MonoClass *klass) MONO_INTERNAL;
 void mono_profiler_monitor_event   (MonoObject *obj, MonoProfilerMonitorEvent event) MONO_INTERNAL;
-void mono_profiler_stat_hit        (guchar *ip, void *context) MONO_INTERNAL;
+void mono_profiler_stat_hit        (guchar *ip, void *tid, void *context) MONO_INTERNAL;
 void mono_profiler_stat_call_chain (int call_chain_depth, guchar **ips, void *context) MONO_INTERNAL;
 int  mono_profiler_stat_get_call_chain_depth (void) MONO_INTERNAL;
 MonoProfilerCallChainStrategy  mono_profiler_stat_get_call_chain_strategy (void) MONO_INTERNAL;

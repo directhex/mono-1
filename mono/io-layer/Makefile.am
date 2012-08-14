@@ -5,6 +5,7 @@ INCLUDES = \
 	$(GLIB_CFLAGS)		\
 	$(LIBGC_CFLAGS)		\
 	-DMONO_BINDIR=\""$(bindir)"\"	\
+	-I$(top_srcdir)/android \
 	-I$(top_srcdir)	
 
 libwapiincludedir = $(includedir)/mono-$(API_VER)/mono/io-layer

@@ -52,7 +52,9 @@ namespace System.Diagnostics
 			callstack = Environment.StackTrace;
 			timestamp = Stopwatch.GetTimestamp ();
 			thread = Thread.CurrentThread.Name;
+#if !MOBILE
 			process = Process.GetCurrentProcess ().Id;
+#endif
 		}
 
 		public string Callstack {

@@ -38,7 +38,9 @@
 #ifndef HOST_WIN32
 #include <sys/types.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #endif
 
 #ifdef PLATFORM_MACOSX
@@ -555,7 +557,7 @@ mono_set_dirs (const char *assembly_dir, const char *config_dir)
 	mono_set_config_dir (config_dir);
 }
 
-#ifndef HOST_WIN32
+#if !defined(HOST_WIN32) && !defined(TARGET_VITA)
 
 static char *
 compute_base (char *path)
@@ -613,6 +615,15 @@ set_dirs (char *exe)
 	g_free (lib);
 	g_free (mono);
 }
+
+#elif defined(TARGET_VITA)
+
+static void
+fallback (void)
+{
+	/* mono_set_dirs must be set by the calling program on Vita */
+}
+
 
 #endif /* HOST_WIN32 */
 
@@ -674,7 +685,7 @@ mono_set_rootdir (void)
 	g_free (bindir);
 	g_free (name);
 	g_free (resolvedname);
-#elif defined(DISABLE_MONO_AUTODETECTION)
+#elif defined(DISABLE_MONO_AUTODETECTION) || defined(TARGET_VITA)
 	fallback ();
 #else
 	char buf [4096];
@@ -2721,6 +2732,19 @@ mono_assembly_load_corlib (const MonoRuntimeInfo *runtime, MonoImageOpenStatus *
 		if (corlib)
 			return corlib;
 	}
+
+#if defined(TARGET_VITA)
+    /* On the PSP2, check if the assembly is in the same folder as the application */
+    {
+        char *tempasm[2];
+        tempasm[0] = g_get_home_dir();
+        tempasm[1] = NULL;
+        corlib = load_in_path ("mscorlib.dll", tempasm, status, FALSE);
+        if (corlib) {
+            return corlib;
+        }
+    }
+#endif
 
 	/* Load corlib from mono/<version> */
 	

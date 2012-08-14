@@ -34,6 +34,9 @@
 
 #ifndef HOST_WIN32
 #include <pthread.h>
+static pthread_t finalizer_pthread;
+#else
+static DWORD finalizer_tid;
 #endif
 
 typedef struct DomainFinalizationReq {
@@ -1061,6 +1064,12 @@ finalize_domain_objects (DomainFinalizationReq *req)
 static guint32
 finalizer_thread (gpointer unused)
 {
+#ifndef HOST_WIN32
+	finalizer_pthread = pthread_self ();
+#else
+	finalizer_tid = GetCurrentThreadId ();
+#endif
+
 	while (!finished) {
 		/* Wait to be notified that there's at least one
 		 * finaliser to run
@@ -1149,6 +1158,7 @@ mono_gc_cleanup (void)
 #ifdef DEBUG
 	g_message ("%s: cleaning up finalizer", __func__);
 #endif
+	int waitRet;
 
 	if (!gc_disabled) {
 		ResetEvent (shutdown_event);
@@ -1157,7 +1167,14 @@ mono_gc_cleanup (void)
 			mono_gc_finalize_notify ();
 			/* Finishing the finalizer thread, so wait a little bit... */
 			/* MS seems to wait for about 2 seconds */
-			if (WaitForSingleObjectEx (shutdown_event, 2000, FALSE) == WAIT_TIMEOUT) {
+#if defined(TARGET_VITA)
+			// something wrong with gettimeofday(), so wait forever
+			// TODO : fix it later
+			waitRet = WaitForSingleObjectEx (shutdown_event, INFINITE, FALSE);
+#else
+			waitRet = WaitForSingleObjectEx (shutdown_event, 2000, FALSE);
+#endif
+			if (waitRet == WAIT_TIMEOUT) {
 				int ret;
 
 				/* Set a flag which the finalizer thread can check */
@@ -1239,6 +1256,16 @@ gboolean
 mono_gc_is_finalizer_thread (MonoThread *thread)
 {
 	return mono_gc_is_finalizer_internal_thread (thread->internal_thread);
+}
+
+gboolean
+mono_gc_is_finalizer_native_thread (void *thr)
+{
+#ifdef HOST_WIN32
+	return finalizer_tid == thr;
+#else
+	return finalizer_pthread == (pthread_t) thr;
+#endif
 }
 
 #if defined(__MACH__)

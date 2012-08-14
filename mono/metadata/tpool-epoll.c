@@ -10,6 +10,10 @@
  * Copyright 2011 Xamarin Inc (http://www.xamarin.com)
  */
 
+#if defined(TARGET_VITA)
+#include "epoll-vita.h"
+#endif
+
 struct _tp_epoll_data {
 	int epollfd;
 };
@@ -27,6 +31,8 @@ tp_epoll_init (SocketIOData *data)
 	result = g_new0 (tp_epoll_data, 1);
 #ifdef EPOLL_CLOEXEC
 	result->epollfd = epoll_create1 (EPOLL_CLOEXEC);
+#elif defined(TARGET_VITA)
+	result->epollfd = epoll_create (0);
 #else
 	result->epollfd = epoll_create (256); /* The number does not really matter */
 	fcntl (result->epollfd, F_SETFD, FD_CLOEXEC);
@@ -55,8 +61,9 @@ tp_epoll_modify (gpointer event_data, int fd, int operation, int events, gboolea
 {
 	tp_epoll_data *data = event_data;
 	struct epoll_event evt;
-	int epoll_op;
+	int epoll_op, res;
 
+	memset (&evt, 0, sizeof (struct epoll_event));
 	evt.data.fd = fd;
 	if ((events & MONO_POLLIN) != 0)
 		evt.events |= EPOLLIN;
@@ -64,11 +71,13 @@ tp_epoll_modify (gpointer event_data, int fd, int operation, int events, gboolea
 		evt.events |= EPOLLOUT;
 
 	epoll_op = (is_new) ? EPOLL_CTL_ADD : EPOLL_CTL_MOD;
-	if (epoll_ctl (data->epollfd, epoll_op, fd, &evt) == -1) {
+	res = epoll_ctl (data->epollfd, epoll_op, fd, &evt);
+	if (res < 0) {
 		int err = errno;
 		if (epoll_op == EPOLL_CTL_ADD && err == EEXIST) {
 			epoll_op = EPOLL_CTL_MOD;
-			if (epoll_ctl (data->epollfd, epoll_op, fd, &evt) == -1) {
+			res = epoll_ctl (data->epollfd, epoll_op, fd, &evt);
+			if (res < 0) {
 				g_message ("epoll_ctl(MOD): %d %s", err, g_strerror (err));
 			}
 		}
@@ -80,7 +89,11 @@ tp_epoll_shutdown (gpointer event_data)
 {
 	tp_epoll_data *data = event_data;
 
+#if defined(TARGET_VITA)
+	epoll_destroy (data->epollfd);
+#else
 	close (data->epollfd);
+#endif
 	g_free (data);
 }
 
@@ -105,6 +118,19 @@ tp_epoll_wait (gpointer p)
 	events = g_new0 (struct epoll_event, EPOLL_NEVENTS);
 
 	while (1) {
+		mono_gc_set_skip_thread (TRUE);
+
+#ifdef TARGET_VITA
+		// WORKAROUND: thread suspend isn't working with epoll_wait, so we need to wake up
+		// periodically to see if we should interrupt the waiting thread.
+		do {
+			if (ready <= 0) {
+				if (THREAD_WANTS_A_BREAK (thread))
+					mono_thread_interruption_checkpoint ();
+			}
+			ready = epoll_wait (epollfd, events, EPOLL_NEVENTS, /*0.1 seconds*/100000);
+		} while (ready == 0 || (ready == -1 && errno == EINTR));
+#else
 		do {
 			if (ready == -1) {
 				if (THREAD_WANTS_A_BREAK (thread))
@@ -112,6 +138,9 @@ tp_epoll_wait (gpointer p)
 			}
 			ready = epoll_wait (epollfd, events, EPOLL_NEVENTS, -1);
 		} while (ready == -1 && errno == EINTR);
+#endif
+
+		mono_gc_set_skip_thread (FALSE);
 
 		if (ready == -1) {
 			int err = errno;

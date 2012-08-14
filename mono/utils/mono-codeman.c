@@ -21,6 +21,10 @@
 #include <valgrind/memcheck.h>
 #endif
 
+#if defined(TARGET_VITA)
+#include "bridge.h"
+#endif
+
 #if defined(__native_client_codegen__) && defined(__native_client__)
 #include <malloc.h>
 #include <nacl/nacl_dyncode.h>
@@ -203,6 +207,9 @@ nacl_inverse_modify_patch_target (unsigned char *target)
 
 #endif /* __native_client_codegen && __native_client__ */
 
+static void unlock_mem (void *addr);
+static void lock_mem (void *addr);
+
 /**
  * mono_code_manager_new:
  *
@@ -282,7 +289,11 @@ free_chunklist (CodeChunk *chunk)
 		mono_profiler_code_chunk_destroy ((gpointer) dead->data);
 		chunk = chunk->next;
 		if (dead->flags == CODE_FLAG_MMAP) {
+#if defined(TARGET_VITA)
+			pss_code_mem_free (dead->data);
+#else
 			mono_vfree (dead->data, dead->size);
+#endif
 			/* valgrind_unregister(dead->data); */
 		} else if (dead->flags == CODE_FLAG_MALLOC) {
 			dlfree (dead->data);
@@ -427,7 +438,11 @@ new_codechunk (int dynamic, int size)
 		/* Allocate MIN_ALIGN-1 more than we need so we can still */
 		/* guarantee MIN_ALIGN alignment for individual allocs    */
 		/* from mono_code_manager_reserve_align.                  */
+#if defined(TARGET_VITA)
+		ptr = pss_code_mem_alloc (&chunk_size);
+#else
 		ptr = mono_valloc (NULL, chunk_size + MIN_ALIGN - 1, MONO_PROT_RWX | ARCH_MAP_FLAGS);
+#endif
 		if (!ptr)
 			return NULL;
 	}
@@ -435,7 +450,9 @@ new_codechunk (int dynamic, int size)
 	if (flags == CODE_FLAG_MALLOC) {
 #ifdef BIND_ROOM
 		/* Make sure the thunks area is zeroed */
+		unlock_mem (ptr);
 		memset (ptr, 0, bsize);
+		lock_mem (ptr);
 #endif
 	}
 
@@ -657,3 +674,30 @@ mono_code_manager_size (MonoCodeManager *cman, int *used_size)
 	return size;
 }
 
+#if defined(TARGET_VITA)
+
+/* Make 'ADDR' writable */
+static void
+unlock_mem (void *addr)
+{
+	pss_code_mem_unlock ();
+}
+
+/* Make 'ADDR' read-only again */
+static void
+lock_mem (void *addr)
+{
+	pss_code_mem_lock ();
+}
+
+#else
+
+static void
+unlock_mem (void *addr) {
+}
+
+static void
+lock_mem (void *addr) {
+}
+
+#endif

@@ -66,7 +66,7 @@ Requires the world to be stoped
 	MonoLinkedListSetNode *__cur;	\
 	for (__cur = (list)->head; __cur; __cur = mono_lls_pointer_unmask (__cur->next)) \
 		if (!mono_lls_pointer_get_mark (__cur->next)) {	\
-		       	(element) = (typeof((element)))__cur;			\
+		       	element = __cur;			\
 
 #define MONO_LLS_END_FOREACH }}
 
@@ -89,7 +89,7 @@ Provides snapshot iteration
 		__cur = mono_lls_info_step (__next, __hp)) {	\
 		__next = get_hazardous_pointer_with_mask ((gpointer volatile*)&__cur->next, __hp, 0);	\
 		if (!mono_lls_pointer_get_mark (__next)) {	\
-			(element) = (typeof((element)))__cur;
+			element = __cur;
 
 #define MONO_LLS_END_FOREACH_SAFE \
 		} \

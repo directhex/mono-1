@@ -17,7 +17,7 @@
 #include <mono/metadata/marshal.h>
 #include <mono/utils/mono-dl.h>
 #include <mono/utils/mono-io-portability.h>
-#ifdef HOST_WIN32
+#if defined(HOST_WIN32) || defined(TARGET_VITA)
 
 /*
  * TODO:

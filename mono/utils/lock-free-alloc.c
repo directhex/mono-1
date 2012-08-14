@@ -374,7 +374,7 @@ alloc_from_active_or_partial (MonoLockFreeAllocator *heap)
 	do {
 		unsigned int next;
 
-		new_anchor = old_anchor = (Anchor)*(volatile gint32*)&desc->anchor.value;
+		new_anchor = old_anchor = *(Anchor*)(volatile gint32*)&desc->anchor.value;
 		if (old_anchor.data.state == STATE_EMPTY) {
 			/* We must free it because we own it. */
 			desc_retire (desc);
@@ -477,7 +477,7 @@ mono_lock_free_free (gpointer ptr)
 	g_assert (SB_HEADER_FOR_ADDR (ptr) == SB_HEADER_FOR_ADDR (sb));
 
 	do {
-		new_anchor = old_anchor = (Anchor)*(volatile gint32*)&desc->anchor.value;
+		new_anchor = old_anchor = *(Anchor*)(volatile gint32*)&desc->anchor.value;
 		*(unsigned int*)ptr = old_anchor.data.avail;
 		new_anchor.data.avail = ((char*)ptr - (char*)sb) / desc->slot_size;
 		g_assert (new_anchor.data.avail < SB_USABLE_SIZE / desc->slot_size);
@@ -531,13 +531,15 @@ descriptor_check_consistency (Descriptor *desc, gboolean print)
 {
 	int count = desc->anchor.data.count;
 	int max_count = SB_USABLE_SIZE / desc->slot_size;
-	gboolean linked [max_count];
+	gboolean *linked;
 	int i, last;
 	unsigned int index;
-
 #ifndef DESC_AVAIL_DUMMY
 	Descriptor *avail;
+#endif
 
+	linked = (gboolean *) alloca (max_count * sizeof (gboolean));
+#ifndef DESC_AVAIL_DUMMY
 	for (avail = desc_avail; avail; avail = avail->next)
 		g_assert_OR_PRINT (desc != avail, "descriptor is in the available list\n");
 #endif

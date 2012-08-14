@@ -86,6 +86,7 @@ namespace MonoTests.System.Threading.Tasks
 		}
 
 		[Test]
+		[Category ("NotWorking")]
 		public void ParallelForNestedTest ()
 		{
 			bool[] launched = new bool[6 * 20 * 10];

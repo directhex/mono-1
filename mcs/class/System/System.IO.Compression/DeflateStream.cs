@@ -232,18 +232,17 @@ namespace System.IO.Compression {
 		{
 			if (disposed)
 				throw new ObjectDisposedException (GetType ().FullName);
-
 			if (src == null)
 				throw new ArgumentNullException ("src");
-
-			if (src_offset < 0)
-				throw new ArgumentOutOfRangeException ("src_offset");
-
-			if (count < 0)
-				throw new ArgumentOutOfRangeException ("count");
-
 			if (!CanWrite)
 				throw new NotSupportedException ("Stream does not support writing");
+			int len = src.Length;
+			if (src_offset < 0 || count < 0)
+				throw new ArgumentException ("src or count is negative.");
+			if (src_offset > len)
+				throw new ArgumentException ("src offset is beyond array size");
+			if ((src_offset + count) > len)
+				throw new ArgumentException ("Writing would overrun buffer");
 
 			WriteInternal (src, src_offset, count);
 		}

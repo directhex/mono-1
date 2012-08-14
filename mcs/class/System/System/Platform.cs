@@ -36,6 +36,7 @@ namespace System {
 		
 		public static bool IsMacOS {
 			get {
+#if SCE_DISABLED
 				if (Environment.OSVersion.Platform != PlatformID.Unix)
 					return false;
 
@@ -51,6 +52,9 @@ namespace System {
 				}
 				
 				return isMacOS;
+#else
+				return false;
+#endif
 			}
 		}
 	}

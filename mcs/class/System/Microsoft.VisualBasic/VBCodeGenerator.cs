@@ -42,6 +42,7 @@
 //
 
 
+#if !MOBILE
 using System;
 using System.Globalization;
 using System.Text;
@@ -1663,3 +1664,4 @@ namespace Microsoft.VisualBasic
 		}
 	}
 }
+#endif

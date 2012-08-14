@@ -64,6 +64,35 @@ int WSAAPI getnameinfo(const struct sockaddr*,socklen_t,char*,DWORD,
 #include <linux/tcp.h>
 #include <sys/endian.h>
 #endif
+#if defined(TARGET_VITA)
+#include "bridge.h"
+#endif
+
+//--- debug -------------------------------------------------------------------
+#define ENABLE_HDEXDUMP
+
+#if 0
+#ifndef PLATFORM_ANDROID
+#define PRINTF(...)			printf( "[dbgAgent] " __VA_ARGS__ )
+#define ERR_PRINTF(...)		printf( "[dbgAgent:ERROR] " __VA_ARGS__ )
+#define TRACE				printf( "[dbgAgent:TRACE] %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ )
+#else
+#define PRINTF(...)			{ char buf[256]; sprintf(buf, "[dbgAgent] " __VA_ARGS__ ); __android_log_write(ANDROID_LOG_DEBUG, "PSS-MONO", buf); }
+#define ERR_PRINTF(...)		{ char buf[256]; sprintf(buf, "[dbgAgent:ERROR] " __VA_ARGS__ ); __android_log_write(ANDROID_LOG_DEBUG, "PSS-MONO", buf); }
+#define TRACE				{ char buf[256]; sprintf(buf, "[dbgAgent:TRACE] %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ ); __android_log_write(ANDROID_LOG_DEBUG, "PSS-MONO", buf); }
+#endif
+#if defined(ENABLE_HDEXDUMP)
+#define HEXDUMP(array, len) { if(len>0){my_hexdump(array, len); printf("#%s#\n", s_hexarray);} }
+#else
+#define HEXDUMP(array, len)
+#endif
+#else
+#define PRINTF(...)
+#define ERR_PRINTF(...)
+#define TRACE
+#define HEXDUMP(array, len)
+#endif
+//-----------------------------------------------------------------------------
 
 #include <mono/metadata/mono-debug.h>
 #include <mono/metadata/mono-debug-debugger.h>
@@ -88,6 +117,10 @@ int WSAAPI getnameinfo(const struct sockaddr*,socklen_t,char*,DWORD,
 
 #if defined(__MACH__)
 #include <mono/utils/mono-threads.h>
+#endif
+
+#if defined(SN_TARGET_PSP2)
+#define DISABLE_SOCKET_TRANSPORT 1
 #endif
 
 #ifndef DISABLE_DEBUGGER_AGENT
@@ -252,15 +285,6 @@ typedef struct {
 	 */
 	MonoContext restore_ctx;
 } DebuggerTlsData;
-
-typedef struct {
-	const char *name;
-	void (*connect) (const char *address);
-	void (*close1) (void);
-	void (*close2) (void);
-	gboolean (*send) (void *buf, int len);
-	int (*recv) (void *buf, int len);
-} DebuggerTransport;
 
 /* 
  * Wire Protocol definitions
@@ -633,10 +657,10 @@ static GHashTable *domains;
 
 static void transport_init (void);
 static void transport_connect (const char *address);
-static gboolean transport_handshake (void);
-static void register_transport (DebuggerTransport *trans);
 
 static guint32 WINAPI debugger_thread (void *arg);
+static gboolean mono_debugger_transport_handshake (void);
+static void mono_debugger_register_transport (MonoDebuggerTransport *trans);
 
 static void runtime_initialized (MonoProfiler *prof);
 
@@ -686,6 +710,10 @@ static void clear_breakpoints_for_domain (MonoDomain *domain);
 
 static void process_profiler_event (EventKind event, gpointer arg);
 
+static const char* cmd_to_string (CommandSet set, int command);
+
+static const char* command_set_to_string (CommandSet command_set);
+
 /* Submodule init/cleanup */
 static void breakpoints_init (void);
 static void breakpoints_cleanup (void);
@@ -713,6 +741,23 @@ static void process_profiler_event (EventKind event, gpointer arg);
 static void
 register_socket_transport (void);
 #endif
+
+static char s_hexarray[512*3+1];
+
+static void my_hexdump(unsigned char* array, int len)
+{
+	static const char moji[0x10] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
+	int i;
+
+	len = len < 512 ? len : 512;
+	for (i=0;i<len;i++)
+	{
+		s_hexarray[i*3]   = moji[array[i]>>4];
+		s_hexarray[i*3+1] = moji[array[i]&0xf];
+		s_hexarray[i*3+2] = ' ';
+	}
+	s_hexarray[len*3] = '\0';
+}
 
 static int
 parse_address (char *address, char **host, int *port)
@@ -778,7 +823,7 @@ mono_debugger_agent_parse_options (char *options)
 	agent_config.server = FALSE;
 	agent_config.defer = FALSE;
 	agent_config.address = NULL;
-
+	PRINTF("mono_debugger_agent_parse_options, options=[%s]\n",options);
 	args = g_strsplit (options, ",", -1);
 	for (ptr = args; ptr && *ptr; ptr ++) {
 		char *arg = *ptr;
@@ -849,6 +894,7 @@ mono_debugger_agent_parse_options (char *options)
 void
 mono_debugger_agent_init (void)
 {
+
 	if (!agent_config.enabled)
 		return;
 
@@ -915,7 +961,7 @@ mono_debugger_agent_init (void)
 	/* This is needed because we can't set local variables in registers yet */
 	mono_disable_optimizations (MONO_OPT_LINEARS);
 #endif
-
+	TRACE;
 	if (!agent_config.onuncaught && !agent_config.onthrow)
 		finish_agent_init (TRUE);
 
@@ -958,7 +1004,9 @@ finish_agent_init (gboolean on_startup)
 		}
 	}
 
+	TRACE;	
 	transport_connect (agent_config.address);
+	TRACE;	
 
 	if (!on_startup) {
 		/* Do some which is usually done after sending the VMStart () event */
@@ -1253,7 +1301,7 @@ socket_transport_connect (const char *address)
 #endif
 	}
 	
-	disconnected = !transport_handshake ();
+	disconnected = !mono_debugger_transport_handshake ();
 	if (disconnected)
 		exit (1);
 }
@@ -1289,7 +1337,7 @@ socket_transport_close2 (void)
 static void
 register_socket_transport (void)
 {
-	DebuggerTransport trans;
+	MonoDebuggerTransport trans;
 
 	trans.name = "dt_socket";
 	trans.connect = socket_transport_connect;
@@ -1298,7 +1346,7 @@ register_socket_transport (void)
 	trans.send = socket_transport_send;
 	trans.recv = socket_transport_recv;
 
-	register_transport (&trans);
+	mono_debugger_register_transport (&trans);
 }
 
 #endif /* DISABLE_SOCKET_TRANSPORT */
@@ -1309,17 +1357,44 @@ register_socket_transport (void)
 
 #define MAX_TRANSPORTS 16
 
-static DebuggerTransport *transport;
+static MonoDebuggerTransport *transport;
 
-static DebuggerTransport transports [MAX_TRANSPORTS];
+static MonoDebuggerTransport transports [MAX_TRANSPORTS];
 static int ntransports;
 
+#if defined(TARGET_VITA)
 static void
-register_transport (DebuggerTransport *trans)
+usb_transport_connect (const char *address)
+{
+	pss_usb_transport_connect(address);
+	TRACE;
+	disconnected = !mono_debugger_transport_handshake ();
+	if (disconnected)
+		exit (1);
+}
+	
+static void
+register_vita_usb_transport (void)
+{
+	MonoDebuggerTransport trans;
+	TRACE;
+	trans.name = "vita-usb";
+	trans.connect = usb_transport_connect;
+	trans.close1 = pss_usb_transport_close1;
+	trans.close2 = pss_usb_transport_close2;
+	trans.send = pss_usb_transport_send;
+	trans.recv = pss_usb_transport_recv;
+
+	mono_debugger_register_transport (&trans);
+}
+#endif /* TARGET_VITA */
+
+static void
+mono_debugger_register_transport (MonoDebuggerTransport *trans)
 {
 	g_assert (ntransports < MAX_TRANSPORTS);
 
-	memcpy (&transports [ntransports], trans, sizeof (DebuggerTransport));
+	memcpy (&transports [ntransports], trans, sizeof (MonoDebuggerTransport));
 	ntransports ++;
 }
 
@@ -1331,7 +1406,11 @@ transport_init (void)
 #ifndef DISABLE_SOCKET_TRANSPORT
 	register_socket_transport ();
 #endif
+#if defined(SN_TARGET_PSP2)
+	register_vita_usb_transport ();
+#endif
 
+	//fprintf (stdout, "debugger-agent: %d transports\n", ntransports);
 	for (i = 0; i < ntransports; ++i) {
 		if (!strcmp (agent_config.transport, transports [i].name))
 			break;
@@ -1377,26 +1456,28 @@ transport_recv (void *buf, int len)
 }
 
 static gboolean
-transport_handshake (void)
+mono_debugger_transport_handshake (void)
 {
 	char handshake_msg [128];
 	guint8 buf [128];
 	int res;
-	
+	TRACE;
 	/* Write handshake message */
 	sprintf (handshake_msg, "DWP-Handshake");
 	do {
 		res = transport_send (handshake_msg, strlen (handshake_msg));
 	} while (res == -1 && get_last_sock_error () == MONO_EINTR);
+	PRINTF("%s %d\n", handshake_msg, res);
 	g_assert (res != -1);
 
 	/* Read answer */
 	res = transport_recv (buf, strlen (handshake_msg));
 	if ((res != strlen (handshake_msg)) || (memcmp (buf, handshake_msg, strlen (handshake_msg) != 0))) {
+		TRACE;	
 		fprintf (stderr, "debugger-agent: DWP handshake failed.\n");
 		return FALSE;
 	}
-
+	PRINTF("%s\n", buf);
 	/*
 	 * To support older clients, the client sends its protocol version after connecting
 	 * using a command. Until that is received, default to our protocol version.
@@ -1423,7 +1504,7 @@ transport_handshake (void)
 
 	set_keepalive ();
 #endif
-	
+
 	return TRUE;
 }
 
@@ -1469,7 +1550,6 @@ static void
 start_debugger_thread (void)
 {
 	gsize tid;
-
 	debugger_thread_handle = mono_create_thread (NULL, 0, debugger_thread, NULL, 0, &tid);
 	g_assert (debugger_thread_handle);
 }
@@ -1638,6 +1718,11 @@ send_packet (int command_set, int command, Buffer *data)
 
 	res = transport_send (buf.buf, len);
 
+	PRINTF("S-CMD: =>>>> len=%3d, id=%3d, flags=0x%x, cmdset=%d, cmd=%d  [%s, %s]\n", 
+			len, id, 0, command_set, command, 
+			command_set_to_string(command_set), cmd_to_string(command_set, command));
+	HEXDUMP(data->buf, len-HEADER_LENGTH);
+
 	buffer_free (&buf);
 
 	return res;
@@ -1660,6 +1745,9 @@ send_reply_packet (int id, int error, Buffer *data)
 	memcpy (buf.buf + 11, data->buf, data->p - data->buf);
 
 	res = transport_send (buf.buf, len);
+
+	PRINTF("REPLY: ***** len=%3d, id=%3d, flags=0x%x\n", len, id, 0x80);
+	HEXDUMP(data->buf, len-HEADER_LENGTH);
 
 	buffer_free (&buf);
 
@@ -3218,6 +3306,8 @@ process_event (EventKind event, gpointer arg, gint32 il_offset, MonoContext *ctx
 	MonoDomain *domain = mono_domain_get ();
 	MonoThread *thread = NULL;
 	gboolean send_success = FALSE;
+	//TRACE;
+	PRINTF("process_event: %d %s\n", event, event_to_string(event));
 
 	if (!inited) {
 		DEBUG (2, fprintf (log_file, "Debugger agent not initialized yet: dropping %s\n", event_to_string (event)));
@@ -3245,6 +3335,7 @@ process_event (EventKind event, gpointer arg, gint32 il_offset, MonoContext *ctx
 		return;
 	}
 
+	//TRACE;
 	if (event == EVENT_KIND_KEEPALIVE)
 		suspend_policy = SUSPEND_POLICY_NONE;
 	else {
@@ -3265,6 +3356,7 @@ process_event (EventKind event, gpointer arg, gint32 il_offset, MonoContext *ctx
 				return;
 		}
 	}
+	//TRACE;
 
 	buffer_init (&buf, 128);
 	buffer_add_byte (&buf, suspend_policy);
@@ -3332,6 +3424,7 @@ process_event (EventKind event, gpointer arg, gint32 il_offset, MonoContext *ctx
 			g_assert_not_reached ();
 		}
 	}
+	//TRACE;
 
 	if (event == EVENT_KIND_VM_START) {
 		suspend_policy = agent_config.suspend ? SUSPEND_POLICY_ALL : SUSPEND_POLICY_NONE;
@@ -3565,6 +3658,8 @@ start_runtime_invoke (MonoProfiler *prof, MonoMethod *method)
 {
 #if defined(HOST_WIN32) && !defined(__GNUC__)
 	gpointer stackptr = ((guint64)_AddressOfReturnAddress () - sizeof (void*));
+#elif defined(TARGET_VITA)
+	gpointer stackptr = __builtin_frame_address ();
 #else
 	gpointer stackptr = __builtin_frame_address (1);
 #endif
@@ -3587,6 +3682,8 @@ end_runtime_invoke (MonoProfiler *prof, MonoMethod *method)
 	int i;
 #if defined(HOST_WIN32) && !defined(__GNUC__)
 	gpointer stackptr = ((guint64)_AddressOfReturnAddress () - sizeof (void*));
+#elif defined(TARGET_VITA)
+	gpointer stackptr = __builtin_frame_address ();
 #else
 	gpointer stackptr = __builtin_frame_address (1);
 #endif
@@ -5802,6 +5899,7 @@ is_really_suspended (gpointer key, gpointer value, gpointer user_data)
 	return res;
 }
 
+
 static ErrorCode
 vm_commands (int command, int id, guint8 *p, guint8 *end, Buffer *buf)
 {
@@ -5935,7 +6033,15 @@ vm_commands (int command, int id, guint8 *p, guint8 *end, Buffer *buf)
 			transport_close2 ();
 			DEBUG(1, fprintf (log_file, "Exiting...\n"));
 
+#if defined(TARGET_VITA)
+			int retp = pss_return_to_lb();
+			if( retp != 0 )
+			{
+				exit (exit_code);
+			}
+#else
 			exit (exit_code);
+#endif
 		}
 		break;
 	}		
@@ -6812,10 +6918,11 @@ type_commands_internal (int command, MonoClass *klass, MonoDomain *domain, guint
 		int i;
 
 		files = g_ptr_array_new ();
-
+		PRINTF("CMD_TYPE_GET_SOURCE_FILES_2\n");
 		while ((method = mono_class_get_methods (klass, &iter))) {
 			MonoDebugMethodInfo *minfo = mono_debug_lookup_method (method);
-
+			PRINTF("klass = \"(%s::)%s\"", klass->name_space, klass->name);
+			PRINTF("method = %s,  minfo = %x\n", method->name, minfo);
 			if (minfo) {
 				mono_debug_symfile_get_line_numbers (minfo, &source_file, NULL, NULL, NULL);
 				if (!source_file)
@@ -6835,6 +6942,7 @@ type_commands_internal (int command, MonoClass *klass, MonoDomain *domain, guint
 			source_file = g_ptr_array_index (files, i);
 			if (command == CMD_TYPE_GET_SOURCE_FILES_2) {
 				buffer_add_string (buf, source_file);
+				PRINTF("sourcefile = \"%s\"", source_file);
 			} else {
 				base = g_path_get_basename (source_file);
 				buffer_add_string (buf, base);
@@ -7655,6 +7763,7 @@ cmd_to_string (CommandSet set, int command)
 static gboolean
 wait_for_attach (void)
 {
+	TRACE;
 #ifndef DISABLE_SOCKET_TRANSPORT
 	if (listen_fd == -1) {
 		DEBUG (1, fprintf (log_file, "[dbg] Invalid listening socket\n"));
@@ -7671,14 +7780,13 @@ wait_for_attach (void)
 #else
 	g_assert_not_reached ();
 #endif
-
 	/* Handshake */
-	disconnected = !transport_handshake ();
+	disconnected = !mono_debugger_transport_handshake ();
 	if (disconnected) {
 		DEBUG (1, fprintf (log_file, "Transport handshake failed!\n"));
 		return FALSE;
 	}
-	
+
 	return TRUE;
 }
 
@@ -7698,7 +7806,7 @@ debugger_thread (void *arg)
 	ErrorCode err;
 	gboolean no_reply;
 	gboolean attach_failed = FALSE;
-
+	TRACE;
 	DEBUG (1, fprintf (log_file, "[dbg] Agent thread started, pid=%p\n", (gpointer)GetCurrentThreadId ()));
 
 	debugger_thread_id = GetCurrentThreadId ();
@@ -7708,7 +7816,7 @@ debugger_thread (void *arg)
 	mono_thread_internal_current ()->flags |= MONO_THREAD_FLAG_DONT_MANAGE;
 
 	mono_set_is_debugger_attached (TRUE);
-	
+	TRACE;
 	if (agent_config.defer) {
 		if (!wait_for_attach ()) {
 			DEBUG (1, fprintf (log_file, "[dbg] Can't attach, aborting debugger thread.\n"));
@@ -7718,8 +7826,9 @@ debugger_thread (void *arg)
 			process_profiler_event (EVENT_KIND_VM_START, mono_thread_get_main ());
 		}
 	}
-	
+	TRACE;
 	while (!attach_failed) {
+
 		res = transport_recv (header, HEADER_LENGTH);
 
 		/* This will break if the socket is closed during shutdown too */
@@ -7749,14 +7858,20 @@ debugger_thread (void *arg)
 			
 			DEBUG (1, fprintf (log_file, "[dbg] Received command %s(%s), id=%d.\n", command_set_to_string (command_set), cmd_str, id));
 		}
+		PRINTF("R-CMD: <---- len=%3d, id=%3d, flags=0x%x, cmdset=%d, cmd=%d  [%s, %s]\n", 
+			len, id, flags, command_set, command, 
+			command_set_to_string(command_set), cmd_to_string(command_set, command));
 
 		data = g_malloc (len - HEADER_LENGTH);
 		if (len - HEADER_LENGTH > 0)
 		{
 			res = transport_recv (data, len - HEADER_LENGTH);
-			if (res != len - HEADER_LENGTH)
+			if (res != len - HEADER_LENGTH){
+				TRACE;
 				break;
+			}
 		}
+		HEXDUMP(data, len-HEADER_LENGTH);
 
 		p = data;
 		end = data + (len - HEADER_LENGTH);
@@ -7820,6 +7935,7 @@ debugger_thread (void *arg)
 		if (command_set == CMD_SET_VM && command == CMD_VM_DISPOSE)
 			break;
 	}
+	TRACE;
 
 	mono_set_is_debugger_attached (FALSE);
 	

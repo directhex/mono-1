@@ -21,9 +21,15 @@
 #include <mono/utils/mono-mmap.h>
 
 #include <mono/utils/lock-free-array-queue.h>
+#ifdef TARGET_VITA
+# include "bridge.h"
+#endif
 
 struct _MonoLockFreeArrayChunk {
 	MonoLockFreeArrayChunk *next;
+#ifdef TARGET_VITA
+	int chunkid;
+#endif
 	gint32 num_entries;
 	char entries [MONO_ZERO_LEN_ARRAY];
 };
@@ -37,8 +43,16 @@ alloc_chunk (MonoLockFreeArray *arr)
 {
 	int size = mono_pagesize ();
 	int num_entries = (size - (sizeof (Chunk) - arr->entry_size * MONO_ZERO_LEN_ARRAY)) / arr->entry_size;
+#ifdef TARGET_VITA
+	int chunkid;
+	Chunk *chunk = NULL;
+
+	chunkid = pss_alloc_raw ((void **)&chunk, size);
+	chunk->chunkid = chunkid;
+#else
 	Chunk *chunk = mono_valloc (0, size, MONO_MMAP_READ | MONO_MMAP_WRITE);
 	g_assert (chunk);
+#endif
 	chunk->num_entries = num_entries;
 	return chunk;
 }
@@ -46,7 +60,11 @@ alloc_chunk (MonoLockFreeArray *arr)
 static void
 free_chunk (Chunk *chunk)
 {
+#ifdef TARGET_VITA
+	pss_free_raw (chunk->chunkid);
+#else
 	mono_vfree (chunk, mono_pagesize ());
+#endif
 }
 
 gpointer

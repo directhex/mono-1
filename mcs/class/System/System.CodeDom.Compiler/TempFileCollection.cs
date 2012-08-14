@@ -27,6 +27,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using System.Collections;
 using System.IO;
 using System.Security;
@@ -277,3 +278,4 @@ namespace System.CodeDom.Compiler {
 		[DllImport ("libc")] private static extern int mkdir (string olpath, uint mode);
 	}
 }
+#endif

@@ -4,7 +4,8 @@
  * Author:
  *	Dick Porter (dick@ximian.com)
  *
- * (C) 2002-2006 Novell, Inc.
+ * (C) 2002-2011 Novell, Inc.
+ * Copyright 2011 Xamarin Inc
  */
 
 #include <config.h>
@@ -26,7 +27,9 @@
 #ifdef HAVE_DIRENT_H
 #  include <dirent.h>
 #endif
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #include <mono/io-layer/wapi.h>
 #include <mono/io-layer/wapi-private.h>
@@ -294,7 +297,12 @@ static void shared_init (void)
 	 * calls exit (eg if an X client loses the connection to its
 	 * server.)
 	 */
+#if !defined(TARGET_VITA)
+	/* Vita atexit runs on a new thread which is not pthread registered, luckily we
+	 * do not use shm, so the handle can be cleaned up by the kernel
+	 */
 	g_atexit (handle_cleanup);
+#endif
 }
 
 static void _wapi_handle_init_shared (struct _WapiHandleShared *handle,

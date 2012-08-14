@@ -44,6 +44,18 @@
 #include "metadata/sgen-cardtable.h"
 #include "metadata/gc-internal.h"
 
+//--- debug -------------------------------------------------------------------
+#if 0
+#define PRINTF(...)			printf( "[sgen-marksweep] " __VA_ARGS__ )
+#define ERR_PRINTF(...)		printf( "[sgen-marksweep:ERROR] " __VA_ARGS__ )
+#define TRACE				printf( "[sgen-marksweep:TRACE] %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ )
+#else
+#define PRINTF(...)
+#define ERR_PRINTF(...)
+#define TRACE
+#endif
+//-----------------------------------------------------------------------------
+
 #define MS_BLOCK_SIZE	(16*1024)
 #define MS_BLOCK_SIZE_SHIFT	14
 #define MAJOR_SECTION_SIZE	MS_BLOCK_SIZE
@@ -1529,7 +1541,7 @@ count_pinned_callback (char *obj, size_t size, void *data)
 		++count_pinned_nonref;
 }
 
-static void __attribute__ ((unused))
+static void MONO_UNUSED
 count_ref_nonref_objs (void)
 {
 	int total;
@@ -1771,7 +1783,7 @@ major_iterate_live_block_ranges (sgen_cardtable_block_callback callback)
 extern long long marked_cards;
 extern long long scanned_cards;
 extern long long scanned_objects;
-
+extern long long remarked_cards;
 #endif
 
 #define CARD_WORDS_PER_BLOCK (CARDS_PER_BLOCK / SIZEOF_VOID_P)
@@ -1909,6 +1921,7 @@ major_scan_card_table (SgenGrayQueue *queue)
 					}
 					obj += block_obj_size;
 				}
+				HEAVY_STAT (if (*card_data) ++remarked_cards);
 			}
 		}
 	} END_FOREACH_BLOCK;

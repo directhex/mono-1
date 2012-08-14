@@ -28,7 +28,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#if !MOONLIGHT
+#if !MOONLIGHT && SCE_DISABLED
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;

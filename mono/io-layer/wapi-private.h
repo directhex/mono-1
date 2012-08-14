@@ -12,7 +12,9 @@
 
 #include <config.h>
 #include <glib.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #include <mono/io-layer/handles.h>
 #include <mono/io-layer/io.h>
@@ -47,10 +49,16 @@ extern const char *_wapi_handle_typename[];
 				   type == WAPI_HANDLE_NAMEDSEM || \
 				   type == WAPI_HANDLE_NAMEDEVENT)
 
+#if defined(TARGET_VITA)
+#define _WAPI_FD_HANDLE(type) (type == WAPI_HANDLE_FILE || \
+			       type == WAPI_HANDLE_CONSOLE || \
+			       type == WAPI_HANDLE_PIPE)
+#else
 #define _WAPI_FD_HANDLE(type) (type == WAPI_HANDLE_FILE || \
 			       type == WAPI_HANDLE_CONSOLE || \
 			       type == WAPI_HANDLE_SOCKET || \
 			       type == WAPI_HANDLE_PIPE)
+#endif
 
 #define _WAPI_SHARED_NAMESPACE(type) (type == WAPI_HANDLE_NAMEDMUTEX || \
 				      type == WAPI_HANDLE_NAMEDSEM || \

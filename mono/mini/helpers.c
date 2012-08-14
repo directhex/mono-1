@@ -60,7 +60,7 @@ opnames[] = {
 
 #endif /* DISABLE_LOGGING */
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__) || defined(__arm__)
 #define emit_debug_info  TRUE
 #else
 #define emit_debug_info  FALSE
@@ -258,3 +258,102 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #endif
 }
 
+static int inited;
+static GHashTable *symbol_hash;
+static int fn_index;
+
+void
+mono_dump_code (MonoCompile *cfg, guint8 *code, int size, char *id)
+{
+	GHashTable *offset_to_bb_hash = NULL;
+	int i, cindex, bb_num;
+	FILE *ofd;
+#ifdef HOST_WIN32
+	const char *tmp = g_get_tmp_dir ();
+#endif
+	const char *objdump_args = g_getenv ("MONO_OBJDUMP_ARGS");
+	char *as_file;
+	char *o_file;
+	char *cmd;
+	int unused;
+	char filename [1024];
+	char symbol [10240];
+	char *s;
+
+	sprintf (filename, "%s/asm.s", g_get_home_dir ());
+
+	// FIXME: Locking
+
+	if (!inited) {
+		symbol_hash = g_hash_table_new (g_str_hash, g_str_equal);
+		ofd = fopen (filename, "w");
+		inited = 1;
+	} else {
+		ofd = fopen (filename, "a");
+	}
+	if (!ofd)
+		return;
+
+	memset (symbol, 0, sizeof (symbol));
+	for (i = 0; id [i]; ++i) {
+		if (i == 0 && isdigit (id [i]))
+			symbol [i] = '_';
+		else if (!isalnum (id [i]))
+			symbol [i] = '_';
+		else
+			symbol [i] = id [i];
+	}
+
+	while (g_hash_table_lookup (symbol_hash, symbol)) {
+		sprintf (symbol + strlen (symbol), "_2");
+	}
+	s = g_strdup (symbol);
+	g_hash_table_insert (symbol_hash, s, s);
+
+	fprintf (ofd, ".global %s\n", symbol);
+	fprintf (ofd, ".type %s,function\n", symbol);
+	fprintf (ofd, ".align 2\n");
+	// asm can't handle big .org-s 
+	g_assert ((guint64)code > 0x80000000);
+	fprintf (ofd, ".org 0x%x\n", code - 0x80000000);
+	fprintf (ofd, "%s:\n", symbol);
+	fprintf (ofd, ".arm\n");
+
+	if (emit_debug_info && cfg != NULL) {
+		MonoBasicBlock *bb;
+		char buf [1024];
+
+		sprintf (buf, ".Ltext%d", fn_index);
+		fn_index ++;
+		
+		fprintf (ofd, ".stabs	\"\",100,0,0,%s\n", buf);
+		fprintf (ofd, ".stabs	\"<BB>\",100,0,0,%s\n", buf);
+		fprintf (ofd, "%s:\n", buf);
+
+		offset_to_bb_hash = g_hash_table_new (NULL, NULL);
+		for (bb = cfg->bb_entry; bb; bb = bb->next_bb) {
+			g_hash_table_insert (offset_to_bb_hash, GINT_TO_POINTER (bb->native_offset), GINT_TO_POINTER (bb->block_num + 1));
+		}
+	}
+
+	cindex = 0;
+	for (i = 0; i < size; ++i) {
+		if (emit_debug_info && cfg != NULL) {
+			bb_num = GPOINTER_TO_INT (g_hash_table_lookup (offset_to_bb_hash, GINT_TO_POINTER (i)));
+			if (bb_num) {
+				fprintf (ofd, "\n.stabd 68,0,%d\n", bb_num - 1);
+				cindex = 0;
+			}
+		}
+		if (cindex == 0) {
+			fprintf (ofd, "\n.byte %d", (unsigned int) code [i]);
+		} else {
+			fprintf (ofd, ",%d", (unsigned int) code [i]);
+		}
+		cindex++;
+		if (cindex == 64)
+			cindex = 0;
+	}
+	fprintf (ofd, "\n");
+	fclose (ofd);
+}

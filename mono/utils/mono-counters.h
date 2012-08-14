@@ -1,8 +1,11 @@
 #ifndef __MONO_COUNTERS_H__
 #define __MONO_COUNTERS_H__
 
-#include <stdio.h>
 #include <mono/utils/mono-publib.h>
+
+MONO_BEGIN_DECLS
+
+#include <stdio.h>
 
 enum {
 	MONO_COUNTER_INT,    /* 32 bit int */
@@ -53,5 +56,6 @@ int  mono_runtime_resource_limit        (int resource_type, uintptr_t soft_limit
 void mono_runtime_resource_set_callback (MonoResourceCallback callback);
 void mono_runtime_resource_check_limit  (int resource_type, uintptr_t value);
 
-#endif /* __MONO_COUNTERS_H__ */
+MONO_END_DECLS
 
+#endif /* __MONO_COUNTERS_H__ */

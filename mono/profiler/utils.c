@@ -17,8 +17,11 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #ifdef HOST_WIN32
 #include <windows.h>
 #else
@@ -48,6 +51,11 @@ static mach_timebase_info_data_t timebase_info;
 #define TICKS_PER_SEC 1000000000LL
 
 #if (defined(TARGET_X86) || defined(TARGET_AMD64)) && defined(__linux__) && defined(HAVE_SCHED_GETCPU)
+#define HAVE_RDTSC 1
+#endif
+
+#if defined(_MSC_VER)
+#include <intrin.h>
 #define HAVE_RDTSC 1
 #endif
 
@@ -103,7 +111,6 @@ clock_time (void)
 	struct timespec tspec;
 	clock_gettime (CLOCK_MONOTONIC, &tspec);
 	return ((uint64_t)tspec.tv_sec * TICKS_PER_SEC + tspec.tv_nsec);
-#else
 	struct timeval tv;
 	gettimeofday (&tv, NULL);
 	return ((uint64_t)tv.tv_sec * TICKS_PER_SEC + tv.tv_usec * 1000);
@@ -127,17 +134,40 @@ fast_current_time (void)
 
 #if HAVE_RDTSC
 
+#if defined(_MSC_VER)
+#define rdtsc(low,high) do { \
+	unsigned __int64 __rdtsc_tmp = __rdtsc();	\
+												\
+	low = (int) __rdtsc_tmp;					\
+	high = (int) (__rdtsc_tmp >> 32);			\
+} while (0);
+#else
 #define rdtsc(low,high) \
 	__asm__ __volatile__("rdtsc" : "=a" (low), "=d" (high))
+#endif
 
+static int
+getcpu ()
+{
+#if defined(_MSC_VER)
+	__asm {
+		mov eax, 1
+		cpuid
+		shr ebx, 24
+		mov eax, ebx
+	}
+#else
+	return sched_getcpu ();
+#endif
+}
 static uint64_t
 safe_rdtsc (int *cpu)
 {
 	unsigned int low, high;
-	int c1 = sched_getcpu ();
+	int c1 = getcpu ();
 	int c2;
 	rdtsc (low, high);
-	c2 = sched_getcpu ();
+	c2 = getcpu ();
 	if (c1 != c2) {
 		*cpu = -1;
 		return 0;
@@ -155,7 +185,7 @@ have_rdtsc (void) {
 	int have_flag = 0;
 	float val;
 	FILE *cpuinfo;
-	int cpu = sched_getcpu ();
+	int cpu = getcpu ();
 
 	if (cpu < 0)
 		return 0;
@@ -190,7 +220,7 @@ rdtsc_current_time (void)
 			int64_t diff = tsc - tls->last_rdtsc;
 			uint64_t nsecs;
 			if (diff > 0) {
-				nsecs = (double)diff/cpu_freq;
+				nsecs = (uint64_t)((double)diff/cpu_freq);
 				//printf ("%llu cycles: %llu nsecs\n", diff, nsecs);
 				return tls->last_time + nsecs;
 			} else {
@@ -251,7 +281,7 @@ utils_init (int fast_time)
 	for (i = 0; i < 256; ++i)
 		time_func ();
 	time_end = time_func ();
-	timer_overhead = (time_end - time_start) / 256;
+	timer_overhead = (int)(time_end - time_start) / 256;
 }
 
 int

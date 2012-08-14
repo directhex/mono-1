@@ -40,7 +40,9 @@ void mono_environment_exitcode_set (gint32 value)
 MonoString*
 ves_icall_System_Environment_GetOSVersionString (void)
 {
-#ifdef HOST_WIN32
+#ifdef TARGET_PSS
+	return mono_string_new (mono_domain_get (), "0.0.0.0");
+#elif HOST_WIN32
 	OSVERSIONINFOEX verinfo;
 
 	MONO_ARCH_SAVE_REGS;

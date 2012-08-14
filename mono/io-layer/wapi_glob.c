@@ -40,11 +40,15 @@
  *	Set in gl_flags if pattern contained a globbing character.
  */
 #include <sys/types.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #include <glib.h>
 #include <ctype.h>
+#ifdef HAVE_DIRENT_H
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>

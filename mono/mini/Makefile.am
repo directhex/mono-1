@@ -24,6 +24,11 @@ sgen_libs = \
 	$(monodir)/mono/utils/libmonoutils.la \
 	$(GLIB_LIBS) $(LIBICONV)
 
+if PLATFORM_ANDROID
+libs +=-lstdc++ -landroid-bridge -L$(top_srcdir)/android
+sgen_libs +=-lstdc++ -landroid-bridge -L$(top_srcdir)/android
+endif
+
 if MOONLIGHT
 moon_libs = \
 	$(monodir)/mono/metadata/libmonoruntimemoon.la	\
@@ -45,7 +50,7 @@ sgenstatic_libs = \
 	$(monodir)/mono/utils/libmonoutils.la \
 	$(GLIB_LIBS) $(LIBICONV)
 
-CLASS=$(mcs_topdir)/class/lib/net_4_0
+CLASS=$(mcs_topdir)/class/lib/net_4_5
 
 RUNTIME_EXECUTABLE = $(if $(SGEN),$(top_builddir)/mono/mini/mono-sgen,$(top_builddir)/runtime/mono-wrapper)
 

@@ -224,6 +224,12 @@ extern gboolean UnlockFile (gpointer handle, guint32 offset_low,
 			    guint32 length_high);
 extern gboolean GetVolumeInformation (const gunichar2 *path, gunichar2 *volumename, int volumesize, int *outserial, int *maxcomp, int *fsflags, gunichar2 *fsbuffer, int fsbuffersize);
 
+#define WAPI_CRYPTO_POLICY_PLAIN 0
+#define WAPI_CRYPTO_POLICY_EDATA 1
+
+typedef int (*WapiGetCryptoPolicy) (const char *src, int *crypto_policy);
+extern void wapi_set_crypto_policy_callback (WapiGetCryptoPolicy cp_func);
+
 G_END_DECLS
 
 #endif /* _WAPI_IO_H_ */

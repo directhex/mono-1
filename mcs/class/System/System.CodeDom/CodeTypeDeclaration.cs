@@ -30,6 +30,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#if !MOBILE
 using System.Runtime.InteropServices;
 using System.Reflection;
 
@@ -191,3 +192,4 @@ namespace System.CodeDom
 		public event EventHandler PopulateMembers;
 	}
 }
+#endif

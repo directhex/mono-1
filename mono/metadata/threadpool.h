@@ -48,5 +48,6 @@ void mono_install_threadpool_thread_hooks (MonoThreadPoolFunc start_func, MonoTh
 typedef void  (*MonoThreadPoolItemFunc) (gpointer user_data);
 void mono_install_threadpool_item_hooks (MonoThreadPoolItemFunc begin_func, MonoThreadPoolItemFunc end_func, gpointer user_data);
 
+void mono_threadpool_set_max_threads (uint32_t tp_max, uint32_t io_max);
 #endif
 

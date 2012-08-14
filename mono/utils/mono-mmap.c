@@ -20,7 +20,9 @@
 #if HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
+#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -122,7 +124,8 @@ mono_valloc_aligned (size_t length, size_t alignment, int flags)
 	char *mem = VirtualAlloc (NULL, length + alignment, MEM_RESERVE, prot);
 	char *aligned;
 
-	g_assert (mem);
+	if (!mem)
+		return NULL;
 
 	aligned = aligned_address (mem, length, alignment);
 
@@ -238,9 +241,44 @@ mono_shared_area_instances (void **array, int count)
 {
 	return 0;
 }
+#elif defined(TARGET_VITA)
+#include "bridge.h"
 
-#else
-#if defined(HAVE_MMAP)
+int
+mono_pagesize (void)
+{
+	return pss_getpagesize ();
+}
+
+void*
+mono_valloc (void *addr, size_t length, int flags)
+{
+	return pss_alloc_mem (length, 0);
+}
+
+void*
+mono_valloc_aligned (size_t length, size_t alignment, int flags)
+{
+	return pss_alloc_mem (length, alignment);
+}
+
+#define HAVE_VALLOC_ALIGNED
+
+int
+mono_vfree (void *addr, size_t length)
+{
+	return pss_free_mem (addr, length);
+}
+
+int
+mono_mprotect (void *addr, size_t length, int flags)
+{
+	if (flags & MONO_MMAP_DISCARD) {
+		memset (addr, 0, length);
+	}
+	return 0;
+}
+#elif defined(HAVE_MMAP)
 
 /**
  * mono_pagesize:
@@ -425,7 +463,6 @@ mono_mprotect (void *addr, size_t length, int flags)
 }
 
 #else
-
 /* dummy malloc-based implementation */
 int
 mono_pagesize (void)
@@ -618,7 +655,7 @@ mono_shared_area_instances (void **array, int count)
 {
 	return mono_shared_area_instances_helper (array, count, FALSE);
 }
-#else
+#elif !defined(HOST_WIN32)
 void*
 mono_shared_area (void)
 {
@@ -652,8 +689,6 @@ mono_shared_area_instances (void **array, int count)
 
 #endif // HAVE_SHM_OPEN
 
-#endif // HOST_WIN32
-
 #ifndef HAVE_VALLOC_ALIGNED
 void*
 mono_valloc_aligned (size_t size, size_t alignment, int flags)
@@ -662,7 +697,8 @@ mono_valloc_aligned (size_t size, size_t alignment, int flags)
 	char *mem = mono_valloc (NULL, size + alignment, flags);
 	char *aligned;
 
-	g_assert (mem);
+	if (!mem)
+		return NULL;
 
 	aligned = aligned_address (mem, size, alignment);
 

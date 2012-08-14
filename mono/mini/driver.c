@@ -53,7 +53,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <locale.h>
-#include "version.h"
 #include "debugger-agent.h"
 
 static FILE *mini_stats_fd = NULL;
@@ -444,6 +443,7 @@ mini_regression (MonoImage *image, int verbose, int *total_run)
 					cfailed++;
 					if (verbose)
 						g_print ("Test '%s' failed compilation.\n", method->name);
+					mono_destroy_compile (cfg);
 				}
 				if (mini_stats_fd)
 					fprintf (mini_stats_fd, "%f, ", 
@@ -476,7 +476,7 @@ mini_regression (MonoImage *image, int verbose, int *total_run)
 	return total;
 }
 
-static int
+int
 mini_regression_list (int verbose, int count, char *images [])
 {
 	int i, total, total_run, run;
@@ -1261,7 +1261,7 @@ BOOL APIENTRY DllMain (HMODULE module_handle, DWORD reason, LPVOID reserved)
 		mono_thread_info_attach (&dummy);
 		break;
 	case DLL_THREAD_DETACH:
-		mono_thread_info_dettach ();
+		mono_thread_info_detach ();
 		break;
 	
 	}

@@ -60,7 +60,7 @@ endif
 endif
 noinst_LTLIBRARIES =  $(shared_libraries) libmonoruntime-static.la $(sgen_libraries) $(moonlight_libraries)
 
-INCLUDES = -I$(top_srcdir) -I$(top_srcdir)/mono $(LIBGC_CFLAGS) $(GLIB_CFLAGS) -DMONO_BINDIR=\"$(bindir)/\" -DMONO_ASSEMBLIES=\"$(assembliesdir)\" -DMONO_CFG_DIR=\"$(confdir)\"
+INCLUDES = -I$(PSS_PLATFORM_HOME)/include -I$(top_srcdir) -I$(top_srcdir)/android -I$(top_srcdir)/mono $(LIBGC_CFLAGS) $(GLIB_CFLAGS) -DMONO_BINDIR=\"$(bindir)/\" -DMONO_ASSEMBLIES=\"$(assembliesdir)\" -DMONO_CFG_DIR=\"$(confdir)\"
 
 #
 # Make sure any prefix changes are updated in the binaries too.
@@ -119,6 +119,12 @@ libmonoruntime_la_SOURCES = \
 	exception.h		\
 	file-io.c		\
 	file-io.h		\
+	file-io-native.c		\
+	file-io-native.h		\
+	file-io-pss.c		\
+	file-io-pss.h		\
+	file-io-pss-glob.c		\
+	file-io-pss-glob.h		\
 	filewatcher.c		\
 	filewatcher.h		\
 	gc.c			\
@@ -126,6 +132,8 @@ libmonoruntime_la_SOURCES = \
 	icall.c			\
 	icall-def.h		\
 	image.c			\
+	io.c			\
+	io.h			\
 	loader.c		\
 	locales.c		\
 	locales.h		\
@@ -202,6 +210,8 @@ libmonoruntime_la_SOURCES = \
 	sgen-protocol.c \
 	sgen-bridge.c		\
 	sgen-bridge.h		\
+	sgen-toggleref.c		\
+	sgen-toggleref.h		\
 	sgen-gc.h		\
 	sgen-archdep.h		\
 	sgen-cardtable.h	\
@@ -297,6 +307,9 @@ pedump_LDADD = libmonoruntime.la ../io-layer/libwapi.la ../utils/libmonoutils.la
 
 if PLATFORM_DARWIN
 pedump_LDFLAGS=-framework CoreFoundation
+endif
+if PLATFORM_ANDROID
+pedump_LDFLAGS=-lstdc++ -landroid-bridge -L$(top_srcdir)/android
 endif
 endif
 endif

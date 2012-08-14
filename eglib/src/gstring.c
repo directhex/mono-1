@@ -30,7 +30,7 @@
 #include <glib.h>
 
 #define GROW_IF_NECESSARY(s,l) { \
-	if(s->len + l >= s->allocated_len) { \
+	if(s->len + (gssize) l >= s->allocated_len) { \
 		s->allocated_len = (s->allocated_len + l + 16) * 2; \
 		s->str = g_realloc(s->str, s->allocated_len); \
 	} \
@@ -235,7 +235,7 @@ g_string_truncate (GString *string, gsize len)
 	g_return_val_if_fail (string != NULL, string);
 
 	/* Silent return */
-	if (len < 0 || len >= string->len) {
+	if (len < 0 || (gssize) len >= string->len) {
 		return string;
 	}
 	
@@ -248,6 +248,9 @@ GString *
 g_string_set_size (GString *string, gsize len)
 {
 	g_return_val_if_fail (string != NULL, string);
+
+	if (len < 0)
+		len = 0;
 
 	GROW_IF_NECESSARY(string, len);
 	

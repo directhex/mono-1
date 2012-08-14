@@ -4,6 +4,7 @@
  * Copyright 2001-2003 Ximian, Inc (http://www.ximian.com)
  * Copyright 2004-2011 Novell, Inc (http://www.novell.com)
  * Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
+ * Copyright 2011 SCEA LLC (http://us.playstation.com)
  */
 
 #include "config.h"
@@ -298,6 +299,12 @@ int64_t
 mono_gc_get_heap_size (void)
 {
 	return GC_get_heap_size ();
+}
+
+void
+mono_gc_set_heap_size_limit (int64_t max_heap, int64_t soft_limit)
+{
+	GC_set_max_heap_size (max_heap);
 }
 
 void
@@ -1259,5 +1266,9 @@ BOOL APIENTRY mono_gc_dllmain (HMODULE module_handle, DWORD reason, LPVOID reser
 #endif
 }
 #endif
+
+void mono_gc_set_skip_thread (gboolean skip)
+{
+}
 
 #endif /* no Boehm GC */

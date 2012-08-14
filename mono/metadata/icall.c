@@ -6303,6 +6303,8 @@ ves_icall_System_Environment_get_MachineName (void)
 
 	g_free (buf);
 	return result;
+#elif defined(TARGET_VITA)
+	return mono_string_new (mono_domain_get (), "pss");
 #elif !defined(DISABLE_SOCKETS)
 	gchar buf [256];
 	MonoString *result;
@@ -6321,7 +6323,7 @@ ves_icall_System_Environment_get_MachineName (void)
 static int
 ves_icall_System_Environment_get_Platform (void)
 {
-#if defined (TARGET_WIN32)
+#if defined (TARGET_WIN32) && !defined(TARGET_PSS)
 	/* Win32NT */
 	return 2;
 #elif defined(__MACH__)
@@ -6443,7 +6445,6 @@ ves_icall_System_Environment_GetEnvironmentVariableNames (void)
 	}
 
 	return names;
-
 #else
 	MonoArray *names;
 	MonoDomain *domain;
@@ -6585,7 +6586,10 @@ ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 static MonoArray *
 ves_icall_System_Environment_GetLogicalDrives (void)
 {
-        gunichar2 buf [256], *ptr, *dname;
+#if defined(TARGET_VITA)
+	return NULL;
+#else
+    gunichar2 buf [256], *ptr, *dname;
 	gunichar2 *u16;
 	guint initial_size = 127, size = 128;
 	gint ndrives;
@@ -6634,16 +6638,21 @@ ves_icall_System_Environment_GetLogicalDrives (void)
 		g_free (ptr);
 
 	return result;
+#endif
 }
 
 static MonoString *
 ves_icall_System_IO_DriveInfo_GetDriveFormat (MonoString *path)
 {
+#if defined(TARGET_VITA)
+	return NULL;
+#else
 	gunichar2 volume_name [MAX_PATH + 1];
 	
 	if (GetVolumeInformation (mono_string_chars (path), NULL, 0, NULL, NULL, NULL, volume_name, MAX_PATH + 1) == FALSE)
 		return NULL;
 	return mono_string_from_utf16 (volume_name);
+#endif
 }
 
 static MonoString *

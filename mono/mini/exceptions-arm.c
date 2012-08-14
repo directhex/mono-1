@@ -51,6 +51,7 @@ mono_arch_get_restore_context (MonoTrampInfo **info, gboolean aot)
 	GSList *unwind_ops = NULL;
 
 	start = code = mono_global_codeman_reserve (128);
+	mono_arm_unlock_code(start);
 
 	/* 
 	 * Move things to their proper place so we can restore all the registers with
@@ -75,6 +76,7 @@ mono_arch_get_restore_context (MonoTrampInfo **info, gboolean aot)
 
 	g_assert ((code - start) < 128);
 
+	mono_arm_lock_code(start);
 	mono_arch_flush_icache (start, code - start);
 
 	if (info)
@@ -101,6 +103,7 @@ mono_arch_get_call_filter (MonoTrampInfo **info, gboolean aot)
 
 	/* call_filter (MonoContext *ctx, unsigned long eip, gpointer exc) */
 	start = code = mono_global_codeman_reserve (320);
+	mono_arm_unlock_code(start);
 
 	/* save all the regs on the stack */
 	ARM_MOV_REG_REG (code, ARMREG_IP, ARMREG_SP);
@@ -121,6 +124,7 @@ mono_arch_get_call_filter (MonoTrampInfo **info, gboolean aot)
 
 	g_assert ((code - start) < 320);
 
+	mono_arm_lock_code(start);
 	mono_arch_flush_icache (start, code - start);
 
 	if (info)
@@ -207,12 +211,18 @@ get_throw_trampoline (int size, gboolean corlib, gboolean rethrow, gboolean llvm
 
 	mono_add_unwind_op_def_cfa (unwind_ops, code, start, ARMREG_SP, 0);
 
+	mono_arm_unlock_code(start);
+
 	/* save all the regs on the stack */
 	ARM_MOV_REG_REG (code, ARMREG_IP, ARMREG_SP);
 	ARM_PUSH (code, MONO_ARM_REGSAVE_MASK);
 
+	mono_arm_lock_code(start);
+
 	mono_add_unwind_op_def_cfa (unwind_ops, code, start, ARMREG_SP, MONO_ARM_NUM_SAVED_REGS * sizeof (mgreg_t));
 	mono_add_unwind_op_offset (unwind_ops, code, start, ARMREG_LR, - sizeof (mgreg_t));
+
+	mono_arm_unlock_code(start);
 
 	/* call throw_exception (exc, ip, sp, int_regs, fp_regs) */
 	/* caller sp */
@@ -244,7 +254,9 @@ get_throw_trampoline (int size, gboolean corlib, gboolean rethrow, gboolean llvm
 		else
 			icall_name = "mono_arm_throw_exception";
 
+		mono_arm_lock_code(start);
 		ji = mono_patch_info_list_prepend (ji, code - start, MONO_PATCH_INFO_JIT_ICALL_ADDR, icall_name);
+		mono_arm_unlock_code(start);
 		ARM_LDR_IMM (code, ARMREG_IP, ARMREG_PC, 0);
 		ARM_B (code, 0);
 		*(gpointer*)(gpointer)code = NULL;
@@ -258,6 +270,8 @@ get_throw_trampoline (int size, gboolean corlib, gboolean rethrow, gboolean llvm
 	/* we should never reach this breakpoint */
 	ARM_DBRK (code);
 	g_assert ((code - start) < size);
+
+	mono_arm_lock_code(start);
 	mono_arch_flush_icache (start, code - start);
 
 	if (info)
@@ -625,5 +639,53 @@ mono_arch_setup_async_callback (MonoContext *ctx, void (*async_cb)(void *fun), g
 	MONO_CONTEXT_SET_SP (ctx, sp);
 	MONO_CONTEXT_SET_IP (ctx, async_cb);
 
-	// FIXME: thumb/arm
+	if (ctx->eip & 1)
+		/* Transition to thumb */
+		ctx->cpsr |= (1 << 5);
+	else
+		/* Transition to ARM */
+		ctx->cpsr &= ~(1 << 5);
 }
+
+#ifdef MONO_ARCH_USES_EXCEPTION_THREAD
+/*
+ * mono_arch_handle_exception_on_thread:
+ *
+ *   Same as mono_arch_handle_exception, but for architectures which dispatch
+ *   exceptions on a helper thread instead of on the target thread.
+ */
+void
+mono_arch_handle_exception_on_thread (pthread_t tid, arm_ucontext *ctx)
+{
+	arm_ucontext *sigctx = ctx;
+	MonoJitTlsData *jit_tls;
+	MonoNativeTlsKey jit_key;
+
+	jit_key = mono_get_jit_tls_key ();
+	jit_tls = pthread_getspecific_for_thread (tid, jit_key);
+	g_assert (jit_tls);
+		
+	guint64 sp = UCONTEXT_REG_SP (sigctx);
+
+	/* Pass the ctx parameter in TLS */
+	mono_arch_sigctx_to_monoctx (sigctx, &jit_tls->ex_ctx);
+	/* The others in registers */
+	UCONTEXT_REG_R0 (sigctx) = (gsize)NULL;
+
+	/* Allocate a stack frame */
+	sp -= 16;
+	UCONTEXT_REG_SP (sigctx) = sp;
+
+	UCONTEXT_REG_PC (sigctx) = (gsize)handle_signal_exception;
+
+#ifdef UCONTEXT_REG_CPSR
+	if ((gsize)UCONTEXT_REG_PC (sigctx) & 1)
+		/* Transition to thumb */
+		UCONTEXT_REG_CPSR (sigctx) |= (1 << 5);
+	else
+		/* Transition to ARM */
+		UCONTEXT_REG_CPSR (sigctx) &= ~(1 << 5);
+#endif
+}
+
+#endif

@@ -18,6 +18,8 @@
 MONO_BEGIN_DECLS
 
 /* This callback should return TRUE if the runtime must wait for the thread, FALSE otherwise */
+typedef void (*MonoThreadsExhaustedCallback) (void);
+
 typedef mono_bool (*MonoThreadManageCallback) (MonoThread* thread);
 
 extern void mono_thread_init (MonoThreadStartCB start_cb,
@@ -40,6 +42,9 @@ extern void mono_thread_detach (MonoThread *thread);
 extern void mono_thread_exit (void);
 
 void     mono_thread_set_manage_callback (MonoThread *thread, MonoThreadManageCallback func);
+
+void mono_thread_set_threads_exhausted_callback (MonoThreadsExhaustedCallback func);
+void mono_thread_set_max_threads (uint32_t num);
 
 extern void mono_threads_set_default_stacksize (uint32_t stacksize);
 extern uint32_t mono_threads_get_default_stacksize (void);

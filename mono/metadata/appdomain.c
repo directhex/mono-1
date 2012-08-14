@@ -15,7 +15,9 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/types.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -48,6 +50,7 @@
 #include <mono/metadata/mono-debug-debugger.h>
 #include <mono/metadata/attach.h>
 #include <mono/metadata/file-io.h>
+#include <mono/metadata/io.h>
 #include <mono/metadata/lock-tracer.h>
 #include <mono/metadata/console-io.h>
 #include <mono/metadata/threads-types.h>
@@ -73,7 +76,12 @@
  * Changes which are already detected at runtime, like the addition
  * of icalls, do not require an increment.
  */
-#define MONO_CORLIB_VERSION 97
+/* 
+ * Temporary hack to force the use of the maching corlib due to the path changes in
+ * 15d8d54d796dd5c67bbe67a926fe374cd5eb9711.
+ */
+#define MONO_CORLIB_VERSION 1024
+//#define MONO_CORLIB_VERSION 97
 
 typedef struct
 {
@@ -274,7 +282,7 @@ mono_runtime_init (MonoDomain *domain, MonoThreadStartCB start_cb,
 
 	/* mscorlib is loaded before we install the load hook */
 	mono_domain_fire_assembly_load (mono_defaults.corlib->assembly, NULL);
-	
+
 	return;
 }
 
@@ -1438,6 +1446,8 @@ ensure_directory_exists (const char *filename)
 	
 	g_free (dir_utf16);
 	return TRUE;
+#elif defined(TARGET_VITA)
+	return FALSE;
 #else
 	char *p;
 	gchar *dir = g_path_get_dirname (filename);
@@ -1480,6 +1490,9 @@ ensure_directory_exists (const char *filename)
 static gboolean
 private_file_needs_copying (const char *src, struct stat *sbuf_src, char *dest)
 {
+#if defined(TARGET_VITA)
+	return FALSE;
+#else
 	struct stat sbuf_dest;
 	gchar *real_src = mono_portability_find_file (src, TRUE);
 
@@ -1502,6 +1515,7 @@ private_file_needs_copying (const char *src, struct stat *sbuf_src, char *dest)
 		return FALSE;
 
 	return TRUE;
+#endif
 }
 
 static gboolean
@@ -1617,6 +1631,9 @@ FIXME bubble up the error instead of raising it here
 char *
 mono_make_shadow_copy (const char *filename)
 {
+#if defined(TARGET_VITA)
+	return NULL;
+#else
 	MonoError error;
 	gchar *sibling_source, *sibling_target;
 	gint sibling_source_len, sibling_target_len;
@@ -1720,6 +1737,7 @@ mono_make_shadow_copy (const char *filename)
 	utime (shadow, &utbuf);
 	
 	return shadow;
+#endif
 }
 #endif /* DISABLE_SHADOW_COPY */
 
@@ -1750,9 +1768,10 @@ try_load_from (MonoAssembly **assembly, const gchar *path1, const gchar *path2,
 			fullpath = new_fullpath;
 			found = TRUE;
 		}
-	} else
+	} else {
 		found = g_file_test (fullpath, G_FILE_TEST_IS_REGULAR);
-	
+	}
+
 	if (found)
 		*assembly = mono_assembly_open_full (fullpath, NULL, refonly);
 
@@ -1882,7 +1901,6 @@ ves_icall_System_Reflection_Assembly_LoadFrom (MonoString *fname, MonoBoolean re
 	}
 		
 	name = filename = mono_string_to_utf8 (fname);
-	
 	ass = mono_assembly_open_full (filename, &status, refOnly);
 	
 	if (!ass){

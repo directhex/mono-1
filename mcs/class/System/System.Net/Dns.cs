@@ -45,27 +45,35 @@ using System.Runtime.Remoting.Messaging;
 using System.Threading.Tasks;
 #endif
 
+#if !MOBILE
 using Mono.Net.Dns;
+#endif
 
 namespace System.Net {
 	public static class Dns {
+#if !MOBILE
 		static bool use_mono_dns;
 		static SimpleResolver resolver;
+#endif
 
 		static Dns ()
 		{
 			System.Net.Sockets.Socket.CheckProtocolSupport();
+#if !MOBILE
 			if (Environment.GetEnvironmentVariable ("MONO_DNS") != null) {
 				resolver = new SimpleResolver ();
 				use_mono_dns = true;
 			}
+#endif
 		}
 
+#if !MOBILE
 		internal static bool UseMonoDns {
 			get { return use_mono_dns; }
 		}
+#endif
 
-#if !MOONLIGHT // global remove of async methods
+#if !MOBILE // global remove of async methods
 
 		private delegate IPHostEntry GetHostByNameCallback (string hostName);
 		private delegate IPHostEntry ResolveCallback (string hostName);

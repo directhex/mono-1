@@ -279,6 +279,7 @@ public class Manager
 	// Load the list of classes that are present in all region assemblies.
 	private void LoadClassList()
 			{
+#if SCE_DISABLED
 				FileStream stream;
 
 				// Look for "I18N-handlers.def" in the same directory
@@ -337,6 +338,9 @@ public class Manager
 					}
 				}
 				reader.Close();
+#else
+				LoadInternalClasses();
+#endif
 			}
 
 	// Load the list of classes from the internal list.
