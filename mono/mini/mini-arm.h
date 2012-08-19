@@ -5,7 +5,7 @@
 #include <mono/utils/mono-context.h>
 #include <glib.h>
 
-#if defined(ARM_FPU_NONE) || (defined(__ARM_EABI__) && !defined(ARM_FPU_VFP))
+#if defined(ARM_FPU_NONE) || (defined(__ARM_EABI__) && !defined(ARM_FPU_VFP) && !defined(ARM_FPU_VFP_HARD))
 #define MONO_ARCH_SOFT_FLOAT 1
 #endif
 
@@ -25,8 +25,10 @@
 #define ARM_FP_MODEL "vfp"
 #elif defined(ARM_FPU_NONE)
 #define ARM_FP_MODEL "soft-float"
+#elif defined(ARM_FPU_VFP_HARD)
+#define ARM_FP_MODEL "vfp(hardfp-abi)"
 #else
-#error "At least one of ARM_FPU_NONE or ARM_FPU_FPA or ARM_FPU_VFP must be defined."
+#error "At least one of ARM_FPU_NONE, ARM_FPU_FPA, ARM_FPU_VFP or ARM_FPU_VFP_HARD must be defined."
 #endif
 
 #define MONO_ARCH_ARCHITECTURE ARM_ARCHITECTURE "," ARM_FP_MODEL
@@ -57,7 +59,7 @@
 #define MONO_ARCH_CALLEE_REGS ((1<<ARMREG_R0) | (1<<ARMREG_R1) | (1<<ARMREG_R2) | (1<<ARMREG_R3) | (1<<ARMREG_IP))
 #define MONO_ARCH_CALLEE_SAVED_REGS ((1<<ARMREG_V1) | (1<<ARMREG_V2) | (1<<ARMREG_V3) | (1<<ARMREG_V4) | (1<<ARMREG_V5) | (1<<ARMREG_V6) | (1<<ARMREG_V7))
 
-#ifdef ARM_FPU_VFP
+#if defined(ARM_FPU_VFP) || defined(ARM_FPU_VFP_HARD)
 /* Every double precision vfp register, d0/d1 is reserved for a scratch reg */
 #define MONO_ARCH_CALLEE_FREGS 0x55555550
 #else
@@ -88,6 +90,7 @@
 #define MONO_ARCH_CODE_ALIGNMENT 32
 
 void arm_patch (guchar *code, const guchar *target);
+void arm_patch_general (MonoDomain *domain, guchar *code, const guchar *target, MonoCodeManager *dyn_code_mp);
 guint8* mono_arm_emit_load_imm (guint8 *code, int dreg, guint32 val);
 int mono_arm_is_rotated_imm8 (guint32 val, gint *rot_amount);
 
@@ -97,7 +100,8 @@ mono_arm_throw_exception_by_token (guint32 type_token, unsigned long eip, unsign
 typedef enum {
 	MONO_ARM_FPU_NONE = 0,
 	MONO_ARM_FPU_FPA = 1,
-	MONO_ARM_FPU_VFP = 2
+	MONO_ARM_FPU_VFP = 2,
+	MONO_ARM_FPU_VFP_HARD = 3
 } MonoArmFPU;
 
 /* keep the size of the structure a multiple of 8 */
@@ -113,6 +117,9 @@ struct MonoLMF {
 	gulong     sp;
 	gulong     ip;
 	gulong     fp;
+#if defined(MONO_ARM_FPU_VFP_HARD)
+	gdouble    fregs [MONO_SAVED_FREGS]; /* 8..15 */
+#endif
 	/* all but sp and pc: matches the PUSH instruction layout in the trampolines
 	 * 0-4 should be considered undefined (execpt in the magic tramp)
 	 * sp is saved at IP.
@@ -126,6 +133,7 @@ typedef struct MonoCompileArch {
 	gpointer seq_point_bp_method_var;
 	gboolean omit_fp, omit_fp_computed;
 	gpointer cinfo;
+	gpointer vret_addr_loc;
 } MonoCompileArch;
 
 #define MONO_ARCH_EMULATE_FCONV_TO_I8 1
@@ -174,7 +182,7 @@ typedef struct MonoCompileArch {
 #define MONO_ARCH_HAVE_CONTEXT_SET_INT_REG 1
 
 /* Matches the HAVE_AEABI_READ_TP define in mini-arm.c */
-#if defined(__ARM_EABI__) && defined(__linux__) && !defined(TARGET_ANDROID)
+#if defined(MONO_ARM_FPU_VFP_HARD) || defined(__ARM_EABI__) && defined(__linux__) && !defined(TARGET_ANDROID)
 #define MONO_ARCH_HAVE_TLS_GET 1
 #endif
 
@@ -204,6 +212,9 @@ mono_arm_resume_unwind (guint32 dummy1, unsigned long eip, unsigned long esp, gu
 
 gboolean
 mono_arm_thumb_supported (void);
+
+gboolean
+mono_arm_hardfp_abi_supported (void);
 
 GSList*
 mono_arm_get_exception_trampolines (gboolean aot) MONO_INTERNAL;
