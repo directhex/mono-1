@@ -7,7 +7,7 @@
  *
  * Copyright 2001-2003 Ximian, Inc (http://www.ximian.com)
  * Copyright 2004-2009 Novell, Inc (http://www.novell.com)
- * Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
+ * Copyright 2011-2012 Xamarin, Inc (http://www.xamarin.com)
  */
 
 #include <config.h>
@@ -123,9 +123,9 @@ static MonoAotModuleInfoTable *aot_modules = NULL;
 static const MonoRuntimeInfo supported_runtimes[] = {
 	{"v2.0.50215","2.0", { {2,0,0,0},    {8,0,0,0}, { 3, 5, 0, 0 } }	},
 	{"v2.0.50727","2.0", { {2,0,0,0},    {8,0,0,0}, { 3, 5, 0, 0 } }	},
-	{"v4.0.20506","4.0", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
-	{"v4.0.30128","4.0", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
 	{"v4.0.30319","4.5", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
+	{"v4.0.30128","4.0", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
+	{"v4.0.20506","4.0", { {4,0,0,0},    {10,0,0,0}, { 4, 0, 0, 0 } }   },
 	{"moonlight", "2.1", { {2,0,5,0},    {9,0,0,0}, { 3, 5, 0, 0 } }    },
 };
 
@@ -995,6 +995,39 @@ mono_jit_info_get_try_block_hole_table_info (MonoJitInfo *ji)
 		return NULL;
 	}
 }
+
+MonoArchEHJitInfo*
+mono_jit_info_get_arch_eh_info (MonoJitInfo *ji)
+{
+	if (ji->has_arch_eh_info) {
+		char *ptr = (char*)&ji->clauses [ji->num_clauses];
+		if (ji->has_generic_jit_info)
+			ptr += sizeof (MonoGenericJitInfo);
+		if (ji->has_try_block_holes)
+			ptr += sizeof (MonoTryBlockHoleTableJitInfo);
+		return (MonoArchEHJitInfo*)ptr;
+	} else {
+		return NULL;
+	}
+}
+
+MonoMethodCasInfo*
+mono_jit_info_get_cas_info (MonoJitInfo *ji)
+{
+	if (ji->has_cas_info) {
+		char *ptr = (char*)&ji->clauses [ji->num_clauses];
+		if (ji->has_generic_jit_info)
+			ptr += sizeof (MonoGenericJitInfo);
+		if (ji->has_try_block_holes)
+			ptr += sizeof (MonoTryBlockHoleTableJitInfo);
+		if (ji->has_arch_eh_info)
+			ptr += sizeof (MonoArchEHJitInfo);
+		return (MonoMethodCasInfo*)ptr;
+	} else {
+		return NULL;
+	}
+}
+
 void
 mono_install_create_domain_hook (MonoCreateDomainFunc func)
 {
@@ -1235,6 +1268,10 @@ mono_init_internal (const char *filename, const char *exe_filename, const char *
 #ifdef HOST_WIN32
 	/* Avoid system error message boxes. */
 	SetErrorMode (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+#endif
+
+#ifndef HOST_WIN32
+	wapi_init ();
 #endif
 
 	mono_perfcounters_init ();
@@ -1715,7 +1752,7 @@ mono_cleanup (void)
 	DeleteCriticalSection (&appdomains_mutex);
 
 #ifndef HOST_WIN32
-	_wapi_cleanup ();
+	wapi_cleanup ();
 #endif
 }
 
@@ -1934,12 +1971,17 @@ mono_domain_free (MonoDomain *domain, gboolean force)
 			unregister_vtable_reflection_type (g_ptr_array_index (domain->class_vtable_array, i));
 	}
 
+	for (tmp = domain->domain_assemblies; tmp; tmp = tmp->next) {
+		MonoAssembly *ass = tmp->data;
+		mono_assembly_release_gc_roots (ass);
+	}
+
 	/* This needs to be done before closing assemblies */
 	mono_gc_clear_domain (domain);
 
 	for (tmp = domain->domain_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *ass = tmp->data;
-		mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Unloading domain %s[%p], assembly %s[%p], ref_count=%d\n", domain->friendly_name, domain, ass->aname.name, ass, ass->ref_count);
+		mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Unloading domain %s[%p], assembly %s[%p], ref_count=%d", domain->friendly_name, domain, ass->aname.name, ass, ass->ref_count);
 		if (!mono_assembly_close_except_image_pools (ass))
 			tmp->data = NULL;
 	}
@@ -2054,7 +2096,7 @@ mono_domain_free (MonoDomain *domain, gboolean force)
 
 	mono_perfcounters->loader_appdomains--;
 
-	if ((domain == mono_root_domain))
+	if (domain == mono_root_domain)
 		mono_root_domain = NULL;
 }
 

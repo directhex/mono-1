@@ -134,6 +134,16 @@
 	((a)[13]) = (gpointer) (UCONTEXT_REG_LR((ctx)));	\
 	} while (0)
 
+#elif defined(__mips__)
+
+#define REDZONE_SIZE	0
+
+#define USE_MONO_CTX
+#define ARCH_NUM_REGS 32
+
+#define ARCH_SIGCTX_SP(ctx)	(UCONTEXT_GREGS((ctx))[29])
+#define ARCH_SIGCTX_IP(ctx)	(UCONTEXT_REG_PC((ctx)))
+
 #elif defined(__s390x__)
 
 #define REDZONE_SIZE	0

@@ -25,11 +25,13 @@ LIB_MCS_FLAGS = \
 
 TEST_MCS_FLAGS = \
 	/r:$(BUILD_FRAMEWORK)	\
-	/r:Microsoft.Build.Utilities$(NAME_SUFFIX).dll
+	/r:Microsoft.Build.Utilities$(NAME_SUFFIX).dll \
+	/r:System.Xml.dll
 
 EXTRA_DISTFILES = \
 	Test/resources/TestTasks.cs		\
 	Test/resources/*.*proj	\
+	Test/resources/*.csproj \
 	Test/test-config-file*
 
 Test/resources/TestTasks.dll: Test/resources/TestTasks.cs

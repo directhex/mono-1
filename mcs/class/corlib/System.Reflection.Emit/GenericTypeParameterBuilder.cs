@@ -40,6 +40,7 @@ using System.Runtime.Serialization;
 namespace System.Reflection.Emit
 {
 	[ComVisible (true)]
+	[StructLayout (LayoutKind.Sequential)]
 	public sealed class GenericTypeParameterBuilder : Type
 	{
 	#region Sync with reflection.h
@@ -48,9 +49,11 @@ namespace System.Reflection.Emit
 		private string name;
 		private int index;
 		private Type base_type;
+#pragma warning disable 414
 		private Type[] iface_constraints;
 		private CustomAttributeBuilder[] cattrs;
 		private GenericParameterAttributes attrs;
+#pragma warning restore
 	#endregion
 
 		public void SetBaseTypeConstraint (Type baseTypeConstraint)
@@ -81,13 +84,6 @@ namespace System.Reflection.Emit
 			initialize ();
 		}
 
-
-		internal override bool IsCompilerContext {
-			get {
-				return tbuilder.IsCompilerContext;
-			}
-		}
-
 		internal override Type InternalResolve ()
 		{
 			return tbuilder.InternalResolve ().GetGenericArguments () [index]; 
@@ -99,12 +95,7 @@ namespace System.Reflection.Emit
 		[ComVisible (true)]
 		public override bool IsSubclassOf (Type c)
 		{
-			if (!IsCompilerContext)
-				throw not_supported ();
-			if (BaseType == null)
-				return false;
-			else
-				return BaseType == c || BaseType.IsSubclassOf (c);
+			throw not_supported ();
 		}
 
 		protected override TypeAttributes GetAttributeFlagsImpl ()
@@ -112,8 +103,6 @@ namespace System.Reflection.Emit
 #if NET_4_0
 			return TypeAttributes.Public;
 #else
-			if (IsCompilerContext)
-				return TypeAttributes.Public;
 			throw not_supported ();
 #endif
 		}
@@ -371,8 +360,6 @@ namespace System.Reflection.Emit
 
 		public override GenericParameterAttributes GenericParameterAttributes {
 			get {
-				if (IsCompilerContext)
-					return attrs;
 				throw new NotSupportedException ();
 			}
 		}
@@ -383,22 +370,7 @@ namespace System.Reflection.Emit
 
 		public override Type[] GetGenericParameterConstraints ()
 		{
-			if (!IsCompilerContext)
-				throw new InvalidOperationException ();
-			if (base_type == null) {
-				if (iface_constraints != null)
-					return iface_constraints;
-
-				return Type.EmptyTypes;
-			}
-
-			if (iface_constraints == null)
-				return new Type[] { base_type };
-
-			Type[] ret = new Type [iface_constraints.Length + 1];
-			ret [0] = base_type;
-			iface_constraints.CopyTo (ret, 1);
-			return ret;
+			throw new InvalidOperationException ();
 		}
 
 		public override MethodBase DeclaringMethod {
@@ -475,6 +447,12 @@ namespace System.Reflection.Emit
 		public override Type MakePointerType ()
 		{
 			return new PointerType (this);
+		}
+
+		internal override bool IsUserType {
+			get {
+				return false;
+			}
 		}
 	}
 }

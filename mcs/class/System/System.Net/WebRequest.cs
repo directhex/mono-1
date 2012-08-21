@@ -63,22 +63,11 @@ namespace System.Net
 		static bool isDefaultWebProxySet;
 		static IWebProxy defaultWebProxy;
 		static RequestCachePolicy defaultCachePolicy;
-		static MethodInfo cfGetDefaultProxy;
 		
 		// Constructors
 		
 		static WebRequest ()
 		{
-			if (Platform.IsMacOS) {
-#if MONOTOUCH
-				Type type = Type.GetType ("MonoTouch.CoreFoundation.CFNetwork, monotouch");
-#else
-				Type type = Type.GetType ("MonoMac.CoreFoundation.CFNetwork, monomac");
-#endif
-				if (type != null)
-					cfGetDefaultProxy = type.GetMethod ("GetDefaultProxy");
-			}
-			
 #if NET_2_1
 			IWebRequestCreate http = new HttpRequestCreator ();
 			RegisterPrefix ("http", http);
@@ -246,9 +235,14 @@ namespace System.Net
 			
 			ProxyElement pe = sec.Proxy;
 			
-			if ((pe.UseSystemDefault != ProxyElement.UseSystemDefaultValues.False) && (pe.ProxyAddress == null))
-				p = (WebProxy) GetSystemWebProxy ();
-			else
+			if ((pe.UseSystemDefault != ProxyElement.UseSystemDefaultValues.False) && (pe.ProxyAddress == null)) {
+				IWebProxy proxy = GetSystemWebProxy ();
+				
+				if (!(proxy is WebProxy))
+					return proxy;
+				
+				p = (WebProxy) proxy;
+			} else
 				p = new WebProxy ();
 			
 			if (pe.ProxyAddress != null)
@@ -256,6 +250,9 @@ namespace System.Net
 			
 			if (pe.BypassOnLocal != ProxyElement.BypassOnLocalValues.Unspecified)
 				p.BypassProxyOnLocal = (pe.BypassOnLocal == ProxyElement.BypassOnLocalValues.True);
+				
+			foreach(BypassElement elem in sec.BypassList)
+				p.BypassArrayList.Add(elem.Address);
 			
 			return p;
 #else
@@ -300,7 +297,19 @@ namespace System.Net
 				throw new ArgumentNullException ("requestUri");
 			return GetCreator (requestUri.Scheme).Create (requestUri);
 		}
-
+#if NET_4_5 || MOBILE	
+		[MonoTODO ("for portable library support")]
+		public static HttpWebRequest CreateHttp (string requestUriString)
+		{
+			throw new NotImplementedException ();
+		}
+			
+		[MonoTODO ("for portable library support")]
+		public static HttpWebRequest CreateHttp (Uri requestUri)
+		{
+			throw new NotImplementedException ();
+		}
+#endif
 		public virtual Stream EndGetRequestStream (IAsyncResult asyncResult)
 		{
 			throw GetMustImplement ();
@@ -324,33 +333,94 @@ namespace System.Net
 		[MonoTODO("Look in other places for proxy config info")]
 		public static IWebProxy GetSystemWebProxy ()
 		{
-			string address = Environment.GetEnvironmentVariable ("http_proxy");
-			if (address == null)
-				address = Environment.GetEnvironmentVariable ("HTTP_PROXY");
+#if !NET_2_1
+			if (IsWindows ()) {
+				int iProxyEnable = (int)Microsoft.Win32.Registry.GetValue ("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "ProxyEnable", 0);
 
-			if (address != null) {
-				try {
-					if (!address.StartsWith ("http://"))
-						address = "http://" + address;
-					Uri uri = new Uri (address);
-					IPAddress ip;
-					if (IPAddress.TryParse (uri.Host, out ip)) {
-						if (IPAddress.Any.Equals (ip)) {
-							UriBuilder builder = new UriBuilder (uri);
-							builder.Host = "127.0.0.1";
-							uri = builder.Uri;
-						} else if (IPAddress.IPv6Any.Equals (ip)) {
-							UriBuilder builder = new UriBuilder (uri);
-							builder.Host = "[::1]";
-							uri = builder.Uri;
+				if (iProxyEnable > 0) {
+					string strHttpProxy = "";					
+					bool bBypassOnLocal = false;
+					ArrayList al = new ArrayList ();
+					
+					string strProxyServer = (string)Microsoft.Win32.Registry.GetValue ("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "ProxyServer", null);
+					string strProxyOverrride = (string)Microsoft.Win32.Registry.GetValue ("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "ProxyOverride", null);
+					
+					if (strProxyServer.Contains ("=")) {
+						foreach (string strEntry in strProxyServer.Split (new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+							if (strEntry.StartsWith ("http=")) {
+								strHttpProxy = strEntry.Substring (5);
+								break;
+							}
+					} else strHttpProxy = strProxyServer;
+					
+					if (strProxyOverrride != null) {						
+						string[] bypassList = strProxyOverrride.Split (new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+					
+						foreach (string str in bypassList) {
+							if (str != "<local>")
+								al.Add (str);
+							else
+								bBypassOnLocal = true;
 						}
 					}
-					return new WebProxy (uri);
-				} catch (UriFormatException) { }
+					
+					return new WebProxy (strHttpProxy, bBypassOnLocal, al.ToArray (typeof(string)) as string[]);
+				}
+			} else {
+#endif
+				if (Platform.IsMacOS)
+					return CFNetwork.GetDefaultProxy ();
+				
+				string address = Environment.GetEnvironmentVariable ("http_proxy");
+
+				if (address == null)
+					address = Environment.GetEnvironmentVariable ("HTTP_PROXY");
+				
+				if (address != null) {
+					try {
+						if (!address.StartsWith ("http://"))
+							address = "http://" + address;
+
+						Uri uri = new Uri (address);
+						IPAddress ip;
+						
+						if (IPAddress.TryParse (uri.Host, out ip)) {
+							if (IPAddress.Any.Equals (ip)) {
+								UriBuilder builder = new UriBuilder (uri);
+								builder.Host = "127.0.0.1";
+								uri = builder.Uri;
+							} else if (IPAddress.IPv6Any.Equals (ip)) {
+								UriBuilder builder = new UriBuilder (uri);
+								builder.Host = "[::1]";
+								uri = builder.Uri;
+							}
+						}
+						
+						bool bBypassOnLocal = false;						
+						ArrayList al = new ArrayList ();
+						string bypass = Environment.GetEnvironmentVariable ("no_proxy");
+						
+						if (bypass == null)
+							bypass = Environment.GetEnvironmentVariable ("NO_PROXY");
+						
+						if (bypass != null) {
+							string[] bypassList = bypass.Split (new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+						
+							foreach (string str in bypassList) {
+								if (str != "*.local")
+									al.Add (str);
+								else
+									bBypassOnLocal = true;
+							}
+						}
+						
+						return new WebProxy (uri, bBypassOnLocal, al.ToArray (typeof(string)) as string[]);
+					} catch (UriFormatException) {
+					}
+				}
+#if !NET_2_1
 			}
-			
-			if (cfGetDefaultProxy != null)
-				return (IWebProxy) cfGetDefaultProxy.Invoke (null, null);
+#endif
 			
 			return new WebProxy ();
 		}
@@ -406,6 +476,11 @@ namespace System.Net
 				throw new NotSupportedException (prefix);
 				
 			return creator;
+		}
+		
+		internal static bool IsWindows ()
+		{
+			return (int) Environment.OSVersion.Platform < 4;
 		}
 
 		internal static void ClearPrefixes ()

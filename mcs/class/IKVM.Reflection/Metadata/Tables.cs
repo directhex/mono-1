@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009-2011 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -32,6 +32,8 @@ namespace IKVM.Reflection.Metadata
 {
 	internal abstract class Table
 	{
+		internal bool Sorted;
+
 		internal bool IsBig
 		{
 			get { return RowCount > 65535; }
@@ -421,42 +423,133 @@ namespace IKVM.Reflection.Metadata
 		{
 			throw new InvalidOperationException();
 		}
+	}
 
-#if STABLE_SORT
-		private struct OrdinalWrapper
+	abstract class SortedTable<T> : Table<T>
+		where T : SortedTable<T>.IRecord
+	{
+		internal interface IRecord
 		{
-			internal int ordinal;
-			internal T value;
+			int SortKey { get; }
+			int FilterKey { get; }
 		}
 
-		protected void Sort(IComparer<T> comparer)
+		internal struct Enumerable
 		{
-			OrdinalWrapper[] items = new OrdinalWrapper[rowCount];
-			for (int i = 0; i < items.Length; i++)
+			private readonly SortedTable<T> table;
+			private readonly int token;
+
+			internal Enumerable(SortedTable<T> table, int token)
 			{
-				items[i].ordinal = i;
-				items[i].value = records[i];
+				this.table = table;
+				this.token = token;
 			}
-			Array.Sort(items, delegate(OrdinalWrapper x, OrdinalWrapper y)
+
+			public Enumerator GetEnumerator()
 			{
-				int res = comparer.Compare(x.value, y.value);
-				if (res == 0)
+				T[] records = table.records;
+				if (!table.Sorted)
 				{
-					res = x.ordinal.CompareTo(y.ordinal);
+					return new Enumerator(records, table.RowCount - 1, -1, token);
 				}
-				return res;
-			});
-			for (int i = 0; i < items.Length; i++)
+				int index = BinarySearch(records, table.RowCount, token & 0xFFFFFF);
+				if (index < 0)
+				{
+					return new Enumerator(null, 0, 1, -1);
+				}
+				int start = index;
+				while (start > 0 && (records[start - 1].FilterKey & 0xFFFFFF) == (token & 0xFFFFFF))
+				{
+					start--;
+				}
+				int end = index;
+				int max = table.RowCount - 1;
+				while (end < max && (records[end + 1].FilterKey & 0xFFFFFF) == (token & 0xFFFFFF))
+				{
+					end++;
+				}
+				return new Enumerator(records, end, start - 1, token);
+			}
+
+			private static int BinarySearch(T[] records, int length, int maskedToken)
 			{
-				records[i] = items[i].value;
+				int min = 0;
+				int max = length - 1;
+				while (min <= max)
+				{
+					int mid = min + ((max - min) / 2);
+					int maskedValue = records[mid].FilterKey & 0xFFFFFF;
+					if (maskedToken == maskedValue)
+					{
+						return mid;
+					}
+					else if (maskedToken < maskedValue)
+					{
+						max = mid - 1;
+					}
+					else
+					{
+						min = mid + 1;
+					}
+				}
+				return -1;
 			}
 		}
-#else
-		protected void Sort(IComparer<T> comparer)
+
+		internal struct Enumerator
 		{
-			Array.Sort(records, 0, rowCount, comparer);
+			private readonly T[] records;
+			private readonly int token;
+			private readonly int max;
+			private int index;
+
+			internal Enumerator(T[] records, int max, int index, int token)
+			{
+				this.records = records;
+				this.token = token;
+				this.max = max;
+				this.index = index;
+			}
+
+			public int Current
+			{
+				get { return index; }
+			}
+
+			public bool MoveNext()
+			{
+				while (index < max)
+				{
+					index++;
+					if (records[index].FilterKey == token)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
 		}
-#endif
+
+		internal Enumerable Filter(int token)
+		{
+			return new Enumerable(this, token);
+		}
+
+		protected void Sort()
+		{
+			ulong[] map = new ulong[rowCount];
+			for (uint i = 0; i < map.Length; i++)
+			{
+				map[i] = ((ulong)records[i].SortKey << 32) | i;
+			}
+			Array.Sort(map);
+			T[] newRecords = new T[rowCount];
+			for (int i = 0; i < map.Length; i++)
+			{
+				newRecords[i] = records[(int)map[i]];
+			}
+			records = newRecords;
+		}
 	}
 
 	sealed class ModuleTable : Table<ModuleTable.Record>
@@ -557,6 +650,14 @@ namespace IKVM.Reflection.Metadata
 				.WriteStringIndex()
 				.WriteStringIndex()
 				.Value;
+		}
+
+		internal void Fixup(ModuleBuilder moduleBuilder)
+		{
+			for (int i = 0; i < rowCount; i++)
+			{
+				moduleBuilder.FixupPseudoToken(ref records[i].ResolutionScope);
+			}
 		}
 	}
 
@@ -769,14 +870,24 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class InterfaceImplTable : Table<InterfaceImplTable.Record>, IComparer<InterfaceImplTable.Record>
+	sealed class InterfaceImplTable : SortedTable<InterfaceImplTable.Record>
 	{
 		internal const int Index = 0x09;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Class;
 			internal int Interface;
+
+			int IRecord.SortKey
+			{
+				get { return Class; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Class; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -828,22 +939,10 @@ namespace IKVM.Reflection.Metadata
 				}
 				records[i].Interface = token;
 			}
-			Sort(this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			if (x.Class == y.Class)
-			{
-#if STABLE_SORT
-				return 0;
-#else
-				// LAMESPEC the CLI spec says that InterfaceImpl should be sorted by { Class, Interface }, but it appears to be
-				// only necessary to sort by Class.
-				return x.Interface == y.Interface ? 0 : (x.Interface > y.Interface ? 1 : -1);
-#endif
-			}
-			return x.Class > y.Class ? 1 : -1;
+			// LAMESPEC the CLI spec says that InterfaceImpl should be sorted by { Class, Interface },
+			// but it appears to only be necessary to sort by Class (and csc emits InterfaceImpl records in
+			// source file order, so to be able to support round tripping, we need to retain ordering as well).
+			Sort();
 		}
 	}
 
@@ -905,23 +1004,30 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].Class))
-				{
-					records[i].Class = moduleBuilder.ResolvePseudoToken(records[i].Class);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].Class);
 			}
 		}
 	}
 
-	sealed class ConstantTable : Table<ConstantTable.Record>, IComparer<ConstantTable.Record>
+	sealed class ConstantTable : SortedTable<ConstantTable.Record>
 	{
 		internal const int Index = 0x0B;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short Type;
 			internal int Parent;
 			internal int Value;
+
+			int IRecord.SortKey
+			{
+				get { return EncodeHasConstant(Parent); }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -957,103 +1063,100 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				int token = records[i].Parent;
-				if (moduleBuilder.IsPseudoToken(token))
-				{
-					token = moduleBuilder.ResolvePseudoToken(token);
-				}
-				// do the HasConstant encoding, so that we can sort the table
-				switch (token >> 24)
-				{
-					case FieldTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 2 | 0;
-						break;
-					case ParamTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 2 | 1;
-						break;
-					case PropertyTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 2 | 2;
-						break;
-					default:
-						throw new InvalidOperationException();
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].Parent);
 			}
-			Array.Sort(records, 0, rowCount, this);
+			Sort();
 		}
 
-		int IComparer<Record>.Compare(Record x, Record y)
+		internal static int EncodeHasConstant(int token)
 		{
-			return x.Parent == y.Parent ? 0 : (x.Parent > y.Parent ? 1 : -1);
+			switch (token >> 24)
+			{
+				case FieldTable.Index:
+					return (token & 0xFFFFFF) << 2 | 0;
+				case ParamTable.Index:
+					return (token & 0xFFFFFF) << 2 | 1;
+				case PropertyTable.Index:
+					return (token & 0xFFFFFF) << 2 | 2;
+				default:
+					throw new InvalidOperationException();
+			}
 		}
 
 		internal object GetRawConstantValue(Module module, int parent)
 		{
-			// TODO use binary search (if sorted)
-			for (int i = 0; i < module.Constant.records.Length; i++)
+			foreach (int i in Filter(parent))
 			{
-				if (module.Constant.records[i].Parent == parent)
+				ByteReader br = module.GetBlob(module.Constant.records[i].Value);
+				switch (module.Constant.records[i].Type)
 				{
-					ByteReader br = module.GetBlob(module.Constant.records[i].Value);
-					switch (module.Constant.records[i].Type)
-					{
-						// see ModuleBuilder.AddConstant for the encodings
-						case Signature.ELEMENT_TYPE_BOOLEAN:
-							return br.ReadByte() != 0;
-						case Signature.ELEMENT_TYPE_I1:
-							return br.ReadSByte();
-						case Signature.ELEMENT_TYPE_I2:
-							return br.ReadInt16();
-						case Signature.ELEMENT_TYPE_I4:
-							return br.ReadInt32();
-						case Signature.ELEMENT_TYPE_I8:
-							return br.ReadInt64();
-						case Signature.ELEMENT_TYPE_U1:
-							return br.ReadByte();
-						case Signature.ELEMENT_TYPE_U2:
-							return br.ReadUInt16();
-						case Signature.ELEMENT_TYPE_U4:
-							return br.ReadUInt32();
-						case Signature.ELEMENT_TYPE_U8:
-							return br.ReadUInt64();
-						case Signature.ELEMENT_TYPE_R4:
-							return br.ReadSingle();
-						case Signature.ELEMENT_TYPE_R8:
-							return br.ReadDouble();
-						case Signature.ELEMENT_TYPE_CHAR:
-							return br.ReadChar();
-						case Signature.ELEMENT_TYPE_STRING:
+					// see ModuleBuilder.AddConstant for the encodings
+					case Signature.ELEMENT_TYPE_BOOLEAN:
+						return br.ReadByte() != 0;
+					case Signature.ELEMENT_TYPE_I1:
+						return br.ReadSByte();
+					case Signature.ELEMENT_TYPE_I2:
+						return br.ReadInt16();
+					case Signature.ELEMENT_TYPE_I4:
+						return br.ReadInt32();
+					case Signature.ELEMENT_TYPE_I8:
+						return br.ReadInt64();
+					case Signature.ELEMENT_TYPE_U1:
+						return br.ReadByte();
+					case Signature.ELEMENT_TYPE_U2:
+						return br.ReadUInt16();
+					case Signature.ELEMENT_TYPE_U4:
+						return br.ReadUInt32();
+					case Signature.ELEMENT_TYPE_U8:
+						return br.ReadUInt64();
+					case Signature.ELEMENT_TYPE_R4:
+						return br.ReadSingle();
+					case Signature.ELEMENT_TYPE_R8:
+						return br.ReadDouble();
+					case Signature.ELEMENT_TYPE_CHAR:
+						return br.ReadChar();
+					case Signature.ELEMENT_TYPE_STRING:
+						{
+							char[] chars = new char[br.Length / 2];
+							for (int j = 0; j < chars.Length; j++)
 							{
-								char[] chars = new char[br.Length / 2];
-								for (int j = 0; j < chars.Length; j++)
-								{
-									chars[j] = br.ReadChar();
-								}
-								return new String(chars);
+								chars[j] = br.ReadChar();
 							}
-						case Signature.ELEMENT_TYPE_CLASS:
-							if (br.ReadInt32() != 0)
-							{
-								throw new BadImageFormatException();
-							}
-							return null;
-						default:
+							return new String(chars);
+						}
+					case Signature.ELEMENT_TYPE_CLASS:
+						if (br.ReadInt32() != 0)
+						{
 							throw new BadImageFormatException();
-					}
+						}
+						return null;
+					default:
+						throw new BadImageFormatException();
 				}
 			}
 			throw new InvalidOperationException();
 		}
 	}
 
-	sealed class CustomAttributeTable : Table<CustomAttributeTable.Record>, IComparer<CustomAttributeTable.Record>
+	sealed class CustomAttributeTable : SortedTable<CustomAttributeTable.Record>
 	{
 		internal const int Index = 0x0C;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Parent;
 			internal int Type;
 			internal int Value;
+
+			int IRecord.SortKey
+			{
+				get { return EncodeHasCustomAttribute(Parent); }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1090,97 +1193,83 @@ namespace IKVM.Reflection.Metadata
 			int[] genericParamFixup = moduleBuilder.GenericParam.GetIndexFixup();
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].Type))
+				moduleBuilder.FixupPseudoToken(ref records[i].Type);
+				moduleBuilder.FixupPseudoToken(ref records[i].Parent);
+				if (records[i].Parent >> 24 == GenericParamTable.Index)
 				{
-					records[i].Type = moduleBuilder.ResolvePseudoToken(records[i].Type);
-				}
-				int token = records[i].Parent;
-				if (moduleBuilder.IsPseudoToken(token))
-				{
-					token = moduleBuilder.ResolvePseudoToken(token);
-				}
-				// do the HasCustomAttribute encoding, so that we can sort the table
-				switch (token >> 24)
-				{
-					case MethodDefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 0;
-						break;
-					case FieldTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 1;
-						break;
-					case TypeRefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 2;
-						break;
-					case TypeDefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 3;
-						break;
-					case ParamTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 4;
-						break;
-					case InterfaceImplTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 5;
-						break;
-					case MemberRefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 6;
-						break;
-					case ModuleTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 7;
-						break;
-					// Permission (8) table doesn't exist in the spec
-					case PropertyTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 9;
-						break;
-					case EventTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 10;
-						break;
-					case StandAloneSigTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 11;
-						break;
-					case ModuleRefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 12;
-						break;
-					case TypeSpecTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 13;
-						break;
-					case AssemblyTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 14;
-						break;
-					case AssemblyRefTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 15;
-						break;
-					case FileTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 16;
-						break;
-					case ExportedTypeTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 17;
-						break;
-					case ManifestResourceTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 5 | 18;
-						break;
-					case GenericParamTable.Index:
-						records[i].Parent = (genericParamFixup[(token & 0xFFFFFF) - 1] + 1) << 5 | 19;
-						break;
-					default:
-						throw new InvalidOperationException();
+					records[i].Parent = (GenericParamTable.Index << 24) + genericParamFixup[(records[i].Parent & 0xFFFFFF) - 1] + 1;
 				}
 			}
-			Sort(this);
+			Sort();
 		}
 
-		int IComparer<Record>.Compare(Record x, Record y)
+		internal static int EncodeHasCustomAttribute(int token)
 		{
-			return x.Parent == y.Parent ? 0 : (x.Parent > y.Parent ? 1 : -1);
+			switch (token >> 24)
+			{
+				case MethodDefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 0;
+				case FieldTable.Index:
+					return (token & 0xFFFFFF) << 5 | 1;
+				case TypeRefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 2;
+				case TypeDefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 3;
+				case ParamTable.Index:
+					return (token & 0xFFFFFF) << 5 | 4;
+				case InterfaceImplTable.Index:
+					return (token & 0xFFFFFF) << 5 | 5;
+				case MemberRefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 6;
+				case ModuleTable.Index:
+					return (token & 0xFFFFFF) << 5 | 7;
+				// Permission (8) table doesn't exist in the spec
+				case PropertyTable.Index:
+					return (token & 0xFFFFFF) << 5 | 9;
+				case EventTable.Index:
+					return (token & 0xFFFFFF) << 5 | 10;
+				case StandAloneSigTable.Index:
+					return (token & 0xFFFFFF) << 5 | 11;
+				case ModuleRefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 12;
+				case TypeSpecTable.Index:
+					return (token & 0xFFFFFF) << 5 | 13;
+				case AssemblyTable.Index:
+					return (token & 0xFFFFFF) << 5 | 14;
+				case AssemblyRefTable.Index:
+					return (token & 0xFFFFFF) << 5 | 15;
+				case FileTable.Index:
+					return (token & 0xFFFFFF) << 5 | 16;
+				case ExportedTypeTable.Index:
+					return (token & 0xFFFFFF) << 5 | 17;
+				case ManifestResourceTable.Index:
+					return (token & 0xFFFFFF) << 5 | 18;
+				case GenericParamTable.Index:
+					return (token & 0xFFFFFF) << 5 | 19;
+				default:
+					throw new InvalidOperationException();
+			}
 		}
 	}
 
-	sealed class FieldMarshalTable : Table<FieldMarshalTable.Record>, IComparer<FieldMarshalTable.Record>
+	sealed class FieldMarshalTable : SortedTable<FieldMarshalTable.Record>
 	{
 		internal const int Index = 0x0D;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Parent;
 			internal int NativeType;
+
+			int IRecord.SortKey
+			{
+				get { return EncodeHasFieldMarshal(Parent); }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1213,38 +1302,44 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				int token = moduleBuilder.ResolvePseudoToken(records[i].Parent);
-				// do the HasFieldMarshal encoding, so that we can sort the table
-				switch (token >> 24)
-				{
-					case FieldTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 1 | 0;
-						break;
-					case ParamTable.Index:
-						records[i].Parent = (token & 0xFFFFFF) << 1 | 1;
-						break;
-					default:
-						throw new InvalidOperationException();
-				}
+				records[i].Parent = moduleBuilder.ResolvePseudoToken(records[i].Parent);
 			}
-			Array.Sort(records, 0, rowCount, this);
+			Sort();
 		}
 
-		int IComparer<Record>.Compare(Record x, Record y)
+		internal static int EncodeHasFieldMarshal(int token)
 		{
-			return x.Parent == y.Parent ? 0 : (x.Parent > y.Parent ? 1 : -1);
+			switch (token >> 24)
+			{
+				case FieldTable.Index:
+					return (token & 0xFFFFFF) << 1 | 0;
+				case ParamTable.Index:
+					return (token & 0xFFFFFF) << 1 | 1;
+				default:
+					throw new InvalidOperationException();
+			}
 		}
 	}
 
-	sealed class DeclSecurityTable : Table<DeclSecurityTable.Record>, IComparer<DeclSecurityTable.Record>
+	sealed class DeclSecurityTable : SortedTable<DeclSecurityTable.Record>
 	{
 		internal const int Index = 0x0E;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short Action;
 			internal int Parent;
 			internal int PermissionSet;
+
+			int IRecord.SortKey
+			{
+				get { return Parent; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1281,10 +1376,7 @@ namespace IKVM.Reflection.Metadata
 			for (int i = 0; i < rowCount; i++)
 			{
 				int token = records[i].Parent;
-				if (moduleBuilder.IsPseudoToken(token))
-				{
-					token = moduleBuilder.ResolvePseudoToken(token);
-				}
+				moduleBuilder.FixupPseudoToken(ref token);
 				// do the HasDeclSecurity encoding, so that we can sort the table
 				switch (token >> 24)
 				{
@@ -1302,24 +1394,29 @@ namespace IKVM.Reflection.Metadata
 				}
 				records[i].Parent = token;
 			}
-			Sort(this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Parent == y.Parent ? 0 : (x.Parent > y.Parent ? 1 : -1);
+			Sort();
 		}
 	}
 
-	sealed class ClassLayoutTable : Table<ClassLayoutTable.Record>, IComparer<ClassLayoutTable.Record>
+	sealed class ClassLayoutTable : SortedTable<ClassLayoutTable.Record>
 	{
 		internal const int Index = 0x0f;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short PackingSize;
 			internal int ClassSize;
 			internal int Parent;
+
+			int IRecord.SortKey
+			{
+				get { return Parent; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1334,7 +1431,7 @@ namespace IKVM.Reflection.Metadata
 
 		internal override void Write(MetadataWriter mw)
 		{
-			Array.Sort(records, 0, rowCount, this);
+			Sort();
 			for (int i = 0; i < rowCount; i++)
 			{
 				mw.Write(records[i].PackingSize);
@@ -1350,21 +1447,26 @@ namespace IKVM.Reflection.Metadata
 				.WriteTypeDef()
 				.Value;
 		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Parent == y.Parent ? 0 : (x.Parent > y.Parent ? 1 : -1);
-		}
 	}
 
-	sealed class FieldLayoutTable : Table<FieldLayoutTable.Record>, IComparer<FieldLayoutTable.Record>
+	sealed class FieldLayoutTable : SortedTable<FieldLayoutTable.Record>
 	{
 		internal const int Index = 0x10;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Offset;
 			internal int Field;
+
+			int IRecord.SortKey
+			{
+				get { return Field; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Field; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1397,14 +1499,9 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				records[i].Field = moduleBuilder.ResolvePseudoToken(records[i].Field);
+				records[i].Field = moduleBuilder.ResolvePseudoToken(records[i].Field) & 0xFFFFFF;
 			}
-			Array.Sort(records, 0, rowCount, this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Field == y.Field ? 0 : (x.Field > y.Field ? 1 : -1);
+			Sort();
 		}
 	}
 
@@ -1446,14 +1543,24 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class EventMapTable : Table<EventMapTable.Record>
+	sealed class EventMapTable : SortedTable<EventMapTable.Record>
 	{
 		internal const int Index = 0x12;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Parent;
 			internal int EventList;
+
+			int IRecord.SortKey
+			{
+				get { return Parent; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1537,14 +1644,24 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class PropertyMapTable : Table<PropertyMapTable.Record>
+	sealed class PropertyMapTable : SortedTable<PropertyMapTable.Record>
 	{
 		internal const int Index = 0x15;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Parent;
 			internal int PropertyList;
+
+			int IRecord.SortKey
+			{
+				get { return Parent; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Parent; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1628,7 +1745,7 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class MethodSemanticsTable : Table<MethodSemanticsTable.Record>, IComparer<MethodSemanticsTable.Record>
+	sealed class MethodSemanticsTable : SortedTable<MethodSemanticsTable.Record>
 	{
 		internal const int Index = 0x18;
 
@@ -1640,11 +1757,21 @@ namespace IKVM.Reflection.Metadata
 		internal const short RemoveOn = 0x0010;
 		internal const short Fire = 0x0020;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short Semantics;
 			internal int Method;
 			internal int Association;
+
+			int IRecord.SortKey
+			{
+				get { return Association; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Association; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1680,10 +1807,7 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].Method))
-				{
-					records[i].Method = moduleBuilder.ResolvePseudoToken(records[i].Method);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].Method);
 				int token = records[i].Association;
 				// do the HasSemantics encoding, so that we can sort the table
 				switch (token >> 24)
@@ -1699,80 +1823,76 @@ namespace IKVM.Reflection.Metadata
 				}
 				records[i].Association = token;
 			}
-			Sort(this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Association == y.Association ? 0 : (x.Association > y.Association ? 1 : -1);
+			Sort();
 		}
 
 		internal MethodInfo GetMethod(Module module, int token, bool nonPublic, short semantics)
 		{
-			int i = 0;
-			return GetNextMethod(module, token, nonPublic, semantics, ref i);
-		}
-
-		internal MethodInfo[] GetMethods(Module module, int token, bool nonPublic, short semantics)
-		{
-			List<MethodInfo> methods = new List<MethodInfo>();
-			MethodInfo method;
-			for (int i = 0; (method = GetNextMethod(module, token, nonPublic, semantics, ref i)) != null; )
+			foreach (int i in Filter(token))
 			{
-				methods.Add(method);
-			}
-			return methods.ToArray();
-		}
-
-		private MethodInfo GetNextMethod(Module module, int token, bool nonPublic, short semantics, ref int i)
-		{
-			// TODO use binary search?
-			for (; i < records.Length; i++)
-			{
-				if (records[i].Association == token)
+				if ((records[i].Semantics & semantics) != 0)
 				{
-					if ((records[i].Semantics & semantics) != 0)
+					MethodBase method = module.ResolveMethod((MethodDefTable.Index << 24) + records[i].Method);
+					if (nonPublic || method.IsPublic)
 					{
-						MethodInfo method = (MethodInfo)module.ResolveMethod((MethodDefTable.Index << 24) + records[i].Method);
-						if (nonPublic || method.IsPublic)
-						{
-							i++;
-							return method;
-						}
+						return (MethodInfo)method;
 					}
 				}
 			}
 			return null;
 		}
 
-		internal void ComputeFlags(Module module, int token, out bool isPublic, out bool isStatic)
+		internal MethodInfo[] GetMethods(Module module, int token, bool nonPublic, short semantics)
+		{
+			List<MethodInfo> methods = new List<MethodInfo>();
+			foreach (int i in Filter(token))
+			{
+				if ((records[i].Semantics & semantics) != 0)
+				{
+					MethodInfo method = (MethodInfo)module.ResolveMethod((MethodDefTable.Index << 24) + records[i].Method);
+					if (nonPublic || method.IsPublic)
+					{
+						methods.Add(method);
+					}
+				}
+			}
+			return methods.ToArray();
+		}
+
+		internal void ComputeFlags(Module module, int token, out bool isPublic, out bool isNonPrivate, out bool isStatic)
 		{
 			isPublic = false;
+			isNonPrivate = false;
 			isStatic = false;
-			MethodInfo method;
-			for (int i = 0; (method = GetNextMethod(module, token, true, -1, ref i)) != null; )
+			foreach (int i in Filter(token))
 			{
-				if (method.IsPublic)
-				{
-					isPublic = true;
-				}
-				if (method.IsStatic)
-				{
-					isStatic = true;
-				}
+				MethodBase method = module.ResolveMethod((MethodDefTable.Index << 24) + records[i].Method);
+				isPublic |= method.IsPublic;
+				isNonPrivate |= (method.Attributes & MethodAttributes.MemberAccessMask) > MethodAttributes.Private;
+				isStatic |= method.IsStatic;
 			}
 		}
 	}
 
-	sealed class MethodImplTable : Table<MethodImplTable.Record>, IComparer<MethodImplTable.Record>
+	sealed class MethodImplTable : SortedTable<MethodImplTable.Record>
 	{
 		internal const int Index = 0x19;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Class;
 			internal int MethodBody;
 			internal int MethodDeclaration;
+
+			int IRecord.SortKey
+			{
+				get { return Class; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Class; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1808,21 +1928,10 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].MethodBody))
-				{
-					records[i].MethodBody = moduleBuilder.ResolvePseudoToken(records[i].MethodBody);
-				}
-				if (moduleBuilder.IsPseudoToken(records[i].MethodDeclaration))
-				{
-					records[i].MethodDeclaration = moduleBuilder.ResolvePseudoToken(records[i].MethodDeclaration);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].MethodBody);
+				moduleBuilder.FixupPseudoToken(ref records[i].MethodDeclaration);
 			}
-			Sort(this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Class == y.Class ? 0 : (x.Class > y.Class ? 1 : -1);
+			Sort();
 		}
 	}
 
@@ -1892,16 +2001,26 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class ImplMapTable : Table<ImplMapTable.Record>, IComparer<ImplMapTable.Record>
+	sealed class ImplMapTable : SortedTable<ImplMapTable.Record>
 	{
 		internal const int Index = 0x1C;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short MappingFlags;
 			internal int MemberForwarded;
 			internal int ImportName;
 			internal int ImportScope;
+
+			int IRecord.SortKey
+			{
+				get { return MemberForwarded; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return MemberForwarded; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -1940,28 +2059,30 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].MemberForwarded))
-				{
-					records[i].MemberForwarded = moduleBuilder.ResolvePseudoToken(records[i].MemberForwarded);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].MemberForwarded);
 			}
-			Array.Sort(records, 0, rowCount, this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.MemberForwarded == y.MemberForwarded ? 0 : (x.MemberForwarded > y.MemberForwarded ? 1 : -1);
+			Sort();
 		}
 	}
 
-	sealed class FieldRVATable : Table<FieldRVATable.Record>, IComparer<FieldRVATable.Record>
+	sealed class FieldRVATable : SortedTable<FieldRVATable.Record>
 	{
 		internal const int Index = 0x1D;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int RVA;		// we set the high bit to signify that the RVA is in the CIL stream (instead of .sdata)
 			internal int Field;
+
+			int IRecord.SortKey
+			{
+				get { return Field; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Field; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -2002,17 +2123,9 @@ namespace IKVM.Reflection.Metadata
 				{
 					records[i].RVA += sdataRVA;
 				}
-				if (moduleBuilder.IsPseudoToken(records[i].Field))
-				{
-					records[i].Field = moduleBuilder.ResolvePseudoToken(records[i].Field);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].Field);
 			}
-			Array.Sort(records, 0, rowCount, this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Field == y.Field ? 0 : (x.Field > y.Field ? 1 : -1);
+			Sort();
 		}
 	}
 
@@ -2259,6 +2372,14 @@ namespace IKVM.Reflection.Metadata
 			}
 			return AddRecord(rec);
 		}
+
+		internal void Fixup(ModuleBuilder moduleBuilder)
+		{
+			for (int i = 0; i < rowCount; i++)
+			{
+				moduleBuilder.FixupPseudoToken(ref records[i].Implementation);
+			}
+		}
 	}
 
 	sealed class ManifestResourceTable : Table<ManifestResourceTable.Record>
@@ -2303,16 +2424,34 @@ namespace IKVM.Reflection.Metadata
 				.WriteImplementation()
 				.Value;
 		}
+
+		internal void Fixup(ModuleBuilder moduleBuilder)
+		{
+			for (int i = 0; i < rowCount; i++)
+			{
+				moduleBuilder.FixupPseudoToken(ref records[i].Implementation);
+			}
+		}
 	}
 
-	sealed class NestedClassTable : Table<NestedClassTable.Record>
+	sealed class NestedClassTable : SortedTable<NestedClassTable.Record>
 	{
 		internal const int Index = 0x29;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int NestedClass;
 			internal int EnclosingClass;
+
+			int IRecord.SortKey
+			{
+				get { return NestedClass; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return NestedClass; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -2355,11 +2494,11 @@ namespace IKVM.Reflection.Metadata
 		}
 	}
 
-	sealed class GenericParamTable : Table<GenericParamTable.Record>, IComparer<GenericParamTable.Record>
+	sealed class GenericParamTable : SortedTable<GenericParamTable.Record>, IComparer<GenericParamTable.Record>
 	{
 		internal const int Index = 0x2A;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal short Number;
 			internal short Flags;
@@ -2367,6 +2506,16 @@ namespace IKVM.Reflection.Metadata
 			internal int Name;
 			// not part of the table, we use it to be able to fixup the GenericParamConstraint table
 			internal int unsortedIndex;
+
+			int IRecord.SortKey
+			{
+				get { return Owner; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Owner; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -2405,10 +2554,7 @@ namespace IKVM.Reflection.Metadata
 			for (int i = 0; i < rowCount; i++)
 			{
 				int token = records[i].Owner;
-				if (moduleBuilder.IsPseudoToken(token))
-				{
-					token = moduleBuilder.ResolvePseudoToken(token);
-				}
+				moduleBuilder.FixupPseudoToken(ref token);
 				// do the TypeOrMethodDef encoding, so that we can sort the table
 				switch (token >> 24)
 				{
@@ -2423,7 +2569,8 @@ namespace IKVM.Reflection.Metadata
 				}
 				records[i].unsortedIndex = i;
 			}
-			Array.Sort(records, 0, rowCount, this);
+			// FXBUG the unnecessary (IComparer<Record>) cast is a workaround for a .NET 2.0 C# compiler bug
+			Array.Sort(records, 0, rowCount, (IComparer<Record>)this);
 		}
 
 		int IComparer<Record>.Compare(Record x, Record y)
@@ -2433,11 +2580,6 @@ namespace IKVM.Reflection.Metadata
 				return x.Number == y.Number ? 0 : (x.Number > y.Number ? 1 : -1);
 			}
 			return x.Owner > y.Owner ? 1 : -1;
-		}
-
-		internal GenericParameterAttributes GetAttributes(int token)
-		{
-			return (GenericParameterAttributes)records[(token & 0xFFFFFF) - 1].Flags;
 		}
 
 		internal void PatchAttribute(int token, GenericParameterAttributes genericParameterAttributes)
@@ -2457,13 +2599,9 @@ namespace IKVM.Reflection.Metadata
 
 		internal int FindFirstByOwner(int token)
 		{
-			// TODO use binary search (if sorted)
-			for (int i = 0; i < records.Length; i++)
+			foreach (int i in Filter(token))
 			{
-				if (records[i].Owner == token)
-				{
-					return i;
-				}
+				return i;
 			}
 			return -1;
 		}
@@ -2522,22 +2660,29 @@ namespace IKVM.Reflection.Metadata
 		{
 			for (int i = 0; i < rowCount; i++)
 			{
-				if (moduleBuilder.IsPseudoToken(records[i].Method))
-				{
-					records[i].Method = moduleBuilder.ResolvePseudoToken(records[i].Method);
-				}
+				moduleBuilder.FixupPseudoToken(ref records[i].Method);
 			}
 		}
 	}
 
-	sealed class GenericParamConstraintTable : Table<GenericParamConstraintTable.Record>, IComparer<GenericParamConstraintTable.Record>
+	sealed class GenericParamConstraintTable : SortedTable<GenericParamConstraintTable.Record>
 	{
 		internal const int Index = 0x2C;
 
-		internal struct Record
+		internal struct Record : IRecord
 		{
 			internal int Owner;
 			internal int Constraint;
+
+			int IRecord.SortKey
+			{
+				get { return Owner; }
+			}
+
+			int IRecord.FilterKey
+			{
+				get { return Owner; }
+			}
 		}
 
 		internal override void Read(MetadataReader mr)
@@ -2573,12 +2718,7 @@ namespace IKVM.Reflection.Metadata
 			{
 				records[i].Owner = fixups[records[i].Owner - 1] + 1;
 			}
-			Sort(this);
-		}
-
-		int IComparer<Record>.Compare(Record x, Record y)
-		{
-			return x.Owner == y.Owner ? 0 : (x.Owner > y.Owner ? 1 : -1);
+			Sort();
 		}
 	}
 }

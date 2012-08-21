@@ -29,40 +29,87 @@
 
 #if NET_4_5
 
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.Runtime.CompilerServices
 {
 	public struct AsyncTaskMethodBuilder<TResult>
 	{
-		readonly TaskCompletionSource<TResult> tcs;
+		readonly Task<TResult> task;
+		IAsyncStateMachine stateMachine;
 
-		private AsyncTaskMethodBuilder (TaskCompletionSource<TResult> tcs)
+		private AsyncTaskMethodBuilder (Task<TResult> task)
 		{
-			this.tcs = tcs;
+			this.task = task;
+			this.stateMachine = null;
 		}
 
 		public Task<TResult> Task {
 			get {
-				return tcs.Task;
+				return task;
 			}
+		}
+		
+		public void AwaitOnCompleted<TAwaiter, TStateMachine> (ref TAwaiter awaiter, ref TStateMachine stateMachine)
+			where TAwaiter : INotifyCompletion
+			where TStateMachine : IAsyncStateMachine
+		{
+			var action = new Action (stateMachine.MoveNext);
+			awaiter.OnCompleted (action);
+		}
+		
+		public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine> (ref TAwaiter awaiter, ref TStateMachine stateMachine)
+			where TAwaiter : ICriticalNotifyCompletion
+			where TStateMachine : IAsyncStateMachine
+		{
+			var action = new Action (stateMachine.MoveNext);
+			awaiter.UnsafeOnCompleted (action);	
 		}
 		
 		public static AsyncTaskMethodBuilder<TResult> Create ()
 		{
-			return new AsyncTaskMethodBuilder<TResult> (new TaskCompletionSource<TResult> ());
+			var task = new Task<TResult> (TaskActionInvoker.Empty, null, CancellationToken.None, TaskCreationOptions.None, null);
+			task.SetupScheduler (TaskScheduler.Current);
+			return new AsyncTaskMethodBuilder<TResult> (task);
 		}
 
 		public void SetException (Exception exception)
 		{
-			if (!tcs.TrySetException (exception))
-				throw new InvalidOperationException ("The task has already completed");
+			if (exception is OperationCanceledException) {
+				if (Task.TrySetCanceled ())
+					return;
+			} else {
+				if (Task.TrySetException (new AggregateException (exception)))
+					return;
+			}
+
+			throw new InvalidOperationException ("The task has already completed");
+		}
+
+		public void SetStateMachine (IAsyncStateMachine stateMachine)
+		{
+			if (stateMachine == null)
+				throw new ArgumentNullException ("stateMachine");
+			
+			if (this.stateMachine != null)
+				throw new InvalidOperationException ("The state machine was previously set");
+			
+			this.stateMachine = stateMachine;
 		}
 
 		public void SetResult (TResult result)
 		{
-			if (!tcs.TrySetResult (result))
+			if (!task.TrySetResult (result))
 				throw new InvalidOperationException ("The task has already completed");
+		}
+		
+		public void Start<TStateMachine> (ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine
+		{
+			if (stateMachine == null)
+				throw new ArgumentNullException ("stateMachine");
+			
+			stateMachine.MoveNext ();
 		}
 	}
 }

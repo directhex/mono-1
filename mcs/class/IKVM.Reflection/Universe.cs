@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009-2011 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -77,15 +77,28 @@ namespace IKVM.Reflection
 
 	public delegate Assembly ResolveEventHandler(object sender, ResolveEventArgs args);
 
+	[Flags]
+	public enum UniverseOptions
+	{
+		None = 0,
+		EnableFunctionPointers = 1,
+		DisableFusion = 2,
+		DisablePseudoCustomAttributeRetrieval = 4,
+	}
+
 	public sealed class Universe : IDisposable
 	{
-		internal readonly Dictionary<Type, Type> canonicalizedTypes = new Dictionary<Type, Type>();
-		private readonly List<Assembly> assemblies = new List<Assembly>();
+		internal static readonly bool MonoRuntime = System.Type.GetType("Mono.Runtime") != null;
+		private readonly Dictionary<Type, Type> canonicalizedTypes = new Dictionary<Type, Type>();
+		private readonly List<AssemblyReader> assemblies = new List<AssemblyReader>();
 		private readonly List<AssemblyBuilder> dynamicAssemblies = new List<AssemblyBuilder>();
 		private readonly Dictionary<string, Assembly> assembliesByName = new Dictionary<string, Assembly>();
 		private readonly Dictionary<System.Type, Type> importedTypes = new Dictionary<System.Type, Type>();
 		private Dictionary<ScopedTypeName, Type> missingTypes;
 		private bool resolveMissingMembers;
+		private readonly bool enableFunctionPointers;
+		private readonly bool useNativeFusion;
+		private readonly bool returnPseudoCustomAttributes;
 		private Type typeof_System_Object;
 		private Type typeof_System_ValueType;
 		private Type typeof_System_Enum;
@@ -114,7 +127,6 @@ namespace IKVM.Reflection
 		private Type typeof_System_NonSerializedAttribute;
 		private Type typeof_System_SerializableAttribute;
 		private Type typeof_System_AttributeUsageAttribute;
-		private Type typeof_System_Reflection_AssemblyCultureAttribute;
 		private Type typeof_System_Runtime_InteropServices_DllImportAttribute;
 		private Type typeof_System_Runtime_InteropServices_FieldOffsetAttribute;
 		private Type typeof_System_Runtime_InteropServices_InAttribute;
@@ -141,10 +153,36 @@ namespace IKVM.Reflection
 		private Type typeof_System_Reflection_AssemblyInformationalVersionAttribute;
 		private Type typeof_System_Reflection_AssemblyFileVersionAttribute;
 		private Type typeof_System_Security_Permissions_CodeAccessSecurityAttribute;
-		private Type typeof_System_Security_Permissions_HostProtectionAttribute;
 		private Type typeof_System_Security_Permissions_PermissionSetAttribute;
 		private Type typeof_System_Security_Permissions_SecurityAction;
 		private List<ResolveEventHandler> resolvers = new List<ResolveEventHandler>();
+		private Predicate<Type> missingTypeIsValueType;
+
+		public Universe()
+			: this(UniverseOptions.None)
+		{
+		}
+
+		public Universe(UniverseOptions options)
+		{
+			enableFunctionPointers = (options & UniverseOptions.EnableFunctionPointers) != 0;
+			useNativeFusion = (options & UniverseOptions.DisableFusion) == 0 && GetUseNativeFusion();
+			returnPseudoCustomAttributes = (options & UniverseOptions.DisablePseudoCustomAttributeRetrieval) == 0;
+		}
+
+		private static bool GetUseNativeFusion()
+		{
+			try
+			{
+				return Environment.OSVersion.Platform == PlatformID.Win32NT
+					&& !MonoRuntime
+					&& Environment.GetEnvironmentVariable("IKVM_DISABLE_FUSION") == null;
+			}
+			catch (System.Security.SecurityException)
+			{
+				return false;
+			}
+		}
 
 		internal Assembly Mscorlib
 		{
@@ -168,9 +206,8 @@ namespace IKVM.Reflection
 		{
 			// Primitive here means that these types have a special metadata encoding, which means that
 			// there can be references to them without referring to them by name explicitly.
-			// When 'resolve missing type' mode is enabled, we want these types to be usable even when
-			// they don't exist in mscorlib or there is no mscorlib loaded.
-			return Mscorlib.ResolveType(new TypeName("System", name));
+			// We want these types to be usable even when they don't exist in mscorlib or there is no mscorlib loaded.
+			return Mscorlib.FindType(new TypeName("System", name)) ?? GetMissingType(Mscorlib.ManifestModule, null, new TypeName("System", name));
 		}
 
 		internal Type System_Object
@@ -318,11 +355,6 @@ namespace IKVM.Reflection
 			get { return typeof_System_AttributeUsageAttribute ?? (typeof_System_AttributeUsageAttribute = ImportMscorlibType(typeof(System.AttributeUsageAttribute))); }
 		}
 
-		internal Type System_Reflection_AssemblyCultureAttribute
-		{
-			get { return typeof_System_Reflection_AssemblyCultureAttribute ?? (typeof_System_Reflection_AssemblyCultureAttribute = ImportMscorlibType(typeof(System.Reflection.AssemblyCultureAttribute))); }
-		}
-
 		internal Type System_Runtime_InteropServices_DllImportAttribute
 		{
 			get { return typeof_System_Runtime_InteropServices_DllImportAttribute ?? (typeof_System_Runtime_InteropServices_DllImportAttribute = ImportMscorlibType(typeof(System.Runtime.InteropServices.DllImportAttribute))); }
@@ -451,11 +483,6 @@ namespace IKVM.Reflection
 		internal Type System_Security_Permissions_CodeAccessSecurityAttribute
 		{
 			get { return typeof_System_Security_Permissions_CodeAccessSecurityAttribute ?? (typeof_System_Security_Permissions_CodeAccessSecurityAttribute = ImportMscorlibType(typeof(System.Security.Permissions.CodeAccessSecurityAttribute))); }
-		}
-
-		internal Type System_Security_Permissions_HostProtectionAttribute
-		{
-			get { return typeof_System_Security_Permissions_HostProtectionAttribute ?? (typeof_System_Security_Permissions_HostProtectionAttribute = ImportMscorlibType(typeof(System.Security.Permissions.HostProtectionAttribute))); }
 		}
 
 		internal Type System_Security_Permissions_PermissionSetAttribute
@@ -589,8 +616,9 @@ namespace IKVM.Reflection
 			Assembly asm = GetLoadedAssembly(refname);
 			if (asm == null)
 			{
-				asm = module.ToAssembly();
-				assemblies.Add(asm);
+				AssemblyReader asm1 = module.ToAssembly();
+				assemblies.Add(asm1);
+				asm = asm1;
 			}
 			return asm;
 		}
@@ -614,15 +642,28 @@ namespace IKVM.Reflection
 			}
 		}
 
+		private static string GetSimpleAssemblyName(string refname)
+		{
+			int pos;
+			string name;
+			if (Fusion.ParseAssemblySimpleName(refname, out pos, out name) != ParseAssemblyResult.OK)
+			{
+				throw new ArgumentException();
+			}
+			return name;
+		}
+
 		private Assembly GetLoadedAssembly(string refname)
 		{
 			Assembly asm;
 			if (!assembliesByName.TryGetValue(refname, out asm))
 			{
+				string simpleName = GetSimpleAssemblyName(refname);
 				for (int i = 0; i < assemblies.Count; i++)
 				{
 					AssemblyComparisonResult result;
-					if (CompareAssemblyIdentity(refname, false, assemblies[i].FullName, false, out result))
+					if (simpleName.Equals(assemblies[i].Name, StringComparison.InvariantCultureIgnoreCase)
+						&& CompareAssemblyIdentity(refname, false, assemblies[i].FullName, false, out result))
 					{
 						asm = assemblies[i];
 						assembliesByName.Add(refname, asm);
@@ -635,10 +676,12 @@ namespace IKVM.Reflection
 
 		private Assembly GetDynamicAssembly(string refname)
 		{
+			string simpleName = GetSimpleAssemblyName(refname);
 			foreach (AssemblyBuilder asm in dynamicAssemblies)
 			{
 				AssemblyComparisonResult result;
-				if (CompareAssemblyIdentity(refname, false, asm.FullName, false, out result))
+				if (simpleName.Equals(asm.Name, StringComparison.InvariantCultureIgnoreCase)
+					&& CompareAssemblyIdentity(refname, false, asm.FullName, false, out result))
 				{
 					return asm;
 				}
@@ -737,32 +780,62 @@ namespace IKVM.Reflection
 		{
 			// to be more compatible with Type.GetType(), we could call Assembly.GetCallingAssembly(),
 			// import that assembly and pass it as the context, but implicitly importing is considered evil
-			return GetType(null, assemblyQualifiedTypeName, false);
+			return GetType(null, assemblyQualifiedTypeName, false, false);
 		}
 
 		public Type GetType(string assemblyQualifiedTypeName, bool throwOnError)
 		{
 			// to be more compatible with Type.GetType(), we could call Assembly.GetCallingAssembly(),
 			// import that assembly and pass it as the context, but implicitly importing is considered evil
-			return GetType(null, assemblyQualifiedTypeName, throwOnError);
+			return GetType(null, assemblyQualifiedTypeName, throwOnError, false);
+		}
+
+		public Type GetType(string assemblyQualifiedTypeName, bool throwOnError, bool ignoreCase)
+		{
+			// to be more compatible with Type.GetType(), we could call Assembly.GetCallingAssembly(),
+			// import that assembly and pass it as the context, but implicitly importing is considered evil
+			return GetType(null, assemblyQualifiedTypeName, throwOnError, ignoreCase);
 		}
 
 		// note that context is slightly different from the calling assembly (System.Type.GetType),
 		// because context is passed to the AssemblyResolve event as the RequestingAssembly
 		public Type GetType(Assembly context, string assemblyQualifiedTypeName, bool throwOnError)
 		{
+			return GetType(context, assemblyQualifiedTypeName, throwOnError, false);
+		}
+
+		// note that context is slightly different from the calling assembly (System.Type.GetType),
+		// because context is passed to the AssemblyResolve event as the RequestingAssembly
+		public Type GetType(Assembly context, string assemblyQualifiedTypeName, bool throwOnError, bool ignoreCase)
+		{
 			TypeNameParser parser = TypeNameParser.Parse(assemblyQualifiedTypeName, throwOnError);
 			if (parser.Error)
 			{
 				return null;
 			}
-			return parser.GetType(this, context, throwOnError, assemblyQualifiedTypeName, false);
+			return parser.GetType(this, context, throwOnError, assemblyQualifiedTypeName, false, ignoreCase);
+		}
+
+		// this is similar to GetType(Assembly context, string assemblyQualifiedTypeName, bool throwOnError),
+		// but instead it assumes that the type must exist (i.e. if EnableMissingMemberResolution is enabled
+		// it will create a missing type)
+		public Type ResolveType(Assembly context, string assemblyQualifiedTypeName)
+		{
+			TypeNameParser parser = TypeNameParser.Parse(assemblyQualifiedTypeName, false);
+			if (parser.Error)
+			{
+				return null;
+			}
+			return parser.GetType(this, context, false, assemblyQualifiedTypeName, true, false);
 		}
 
 		public Assembly[] GetAssemblies()
 		{
 			Assembly[] array = new Assembly[assemblies.Count + dynamicAssemblies.Count];
-			assemblies.CopyTo(array);
+			for (int i = 0; i < assemblies.Count; i++)
+			{
+				array[i] = assemblies[i];
+			}
 			for (int i = 0, j = assemblies.Count; j < array.Length; i++, j++)
 			{
 				array[j] = dynamicAssemblies[i];
@@ -773,7 +846,9 @@ namespace IKVM.Reflection
 		// this is equivalent to the Fusion CompareAssemblyIdentity API
 		public bool CompareAssemblyIdentity(string assemblyIdentity1, bool unified1, string assemblyIdentity2, bool unified2, out AssemblyComparisonResult result)
 		{
-			return Fusion.CompareAssemblyIdentity(assemblyIdentity1, unified1, assemblyIdentity2, unified2, out result);
+			return useNativeFusion
+				? Fusion.CompareAssemblyIdentityNative(assemblyIdentity1, unified1, assemblyIdentity2, unified2, out result)
+				: Fusion.CompareAssemblyIdentityPure(assemblyIdentity1, unified1, assemblyIdentity2, unified2, out result);
 		}
 
 		public AssemblyBuilder DefineDynamicAssembly(AssemblyName name, AssemblyBuilderAccess access)
@@ -856,6 +931,11 @@ namespace IKVM.Reflection
 			get { return resolveMissingMembers; }
 		}
 
+		internal bool EnableFunctionPointers
+		{
+			get { return enableFunctionPointers; }
+		}
+
 		private struct ScopedTypeName : IEquatable<ScopedTypeName>
 		{
 			private readonly object scope;
@@ -884,22 +964,27 @@ namespace IKVM.Reflection
 			}
 		}
 
+		private Type GetMissingType(Module module, Type declaringType, TypeName typeName)
+		{
+			if (missingTypes == null)
+			{
+				missingTypes = new Dictionary<ScopedTypeName, Type>();
+			}
+			ScopedTypeName stn = new ScopedTypeName(declaringType ?? (object)module, typeName);
+			Type type;
+			if (!missingTypes.TryGetValue(stn, out type))
+			{
+				type = new MissingType(module, declaringType, typeName.Namespace, typeName.Name);
+				missingTypes.Add(stn, type);
+			}
+			return type;
+		}
+
 		internal Type GetMissingTypeOrThrow(Module module, Type declaringType, TypeName typeName)
 		{
 			if (resolveMissingMembers || module.Assembly.__IsMissing)
 			{
-				if (missingTypes == null)
-				{
-					missingTypes = new Dictionary<ScopedTypeName, Type>();
-				}
-				ScopedTypeName stn = new ScopedTypeName(declaringType ?? (object)module, typeName);
-				Type type;
-				if (!missingTypes.TryGetValue(stn, out type))
-				{
-					type = new MissingType(module, declaringType, typeName.Namespace, typeName.Name);
-					missingTypes.Add(stn, type);
-				}
-				return type;
+				return GetMissingType(module, declaringType, typeName);
 			}
 			string fullName = TypeNameParser.Escape(typeName.ToString());
 			if (declaringType != null)
@@ -941,6 +1026,67 @@ namespace IKVM.Reflection
 				return new MissingProperty(declaringType, name, propertySignature);
 			}
 			throw new System.MissingMemberException(declaringType.ToString(), name);
+		}
+
+		internal Type CanonicalizeType(Type type)
+		{
+			Type canon;
+			if (!canonicalizedTypes.TryGetValue(type, out canon))
+			{
+				canon = type;
+				canonicalizedTypes.Add(canon, canon);
+			}
+			return canon;
+		}
+
+		public Type MakeFunctionPointer(__StandAloneMethodSig sig)
+		{
+			return FunctionPointerType.Make(this, sig);
+		}
+
+		public __StandAloneMethodSig MakeStandAloneMethodSig(System.Runtime.InteropServices.CallingConvention callingConvention, Type returnType, CustomModifiers returnTypeCustomModifiers, Type[] parameterTypes, CustomModifiers[] parameterTypeCustomModifiers)
+		{
+			return new __StandAloneMethodSig(true, callingConvention, 0, returnType ?? this.System_Void, Util.Copy(parameterTypes), Type.EmptyTypes,
+				PackedCustomModifiers.CreateFromExternal(returnTypeCustomModifiers, parameterTypeCustomModifiers, Util.NullSafeLength(parameterTypes)));
+		}
+
+		public __StandAloneMethodSig MakeStandAloneMethodSig(CallingConventions callingConvention, Type returnType, CustomModifiers returnTypeCustomModifiers, Type[] parameterTypes, Type[] optionalParameterTypes, CustomModifiers[] parameterTypeCustomModifiers)
+		{
+			return new __StandAloneMethodSig(false, 0, callingConvention, returnType ?? this.System_Void, Util.Copy(parameterTypes), Util.Copy(optionalParameterTypes),
+				PackedCustomModifiers.CreateFromExternal(returnTypeCustomModifiers, parameterTypeCustomModifiers, Util.NullSafeLength(parameterTypes) + Util.NullSafeLength(optionalParameterTypes)));
+		}
+
+		public event Predicate<Type> MissingTypeIsValueType
+		{
+			add
+			{
+				if (missingTypeIsValueType != null)
+				{
+					throw new InvalidOperationException("Only a single MissingTypeIsValueType handler can be registered.");
+				}
+				missingTypeIsValueType = value;
+			}
+			remove
+			{
+				if (value.Equals(missingTypeIsValueType))
+				{
+					missingTypeIsValueType = null;
+				}
+			}
+		}
+
+		internal bool ResolveMissingTypeIsValueType(MissingType missingType)
+		{
+			if (missingTypeIsValueType != null)
+			{
+				return missingTypeIsValueType(missingType);
+			}
+			throw new MissingMemberException(missingType);
+		}
+
+		internal bool ReturnPseudoCustomAttributes
+		{
+			get { return returnPseudoCustomAttributes; }
 		}
 	}
 }

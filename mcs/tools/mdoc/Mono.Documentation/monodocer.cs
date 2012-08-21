@@ -618,7 +618,7 @@ class MDocUpdater : MDocCommand
 		index_assemblies.RemoveAll ();
 
 
-		HashSet<string> goodfiles = new HashSet<string> ();
+		HashSet<string> goodfiles = new HashSet<string> (StringComparer.OrdinalIgnoreCase);
 
 		foreach (AssemblyDefinition assm in assemblies) {
 			AddIndexAssembly (assm, index_assemblies);
@@ -754,7 +754,8 @@ class MDocUpdater : MDocCommand
 	{
 		TypeDefinition decl = type;
 		while (decl != null) {
-			if (!(decl.IsPublic || decl.IsNestedPublic)) {
+			if (!(decl.IsPublic || decl.IsNestedPublic ||
+						decl.IsNestedFamily || decl.IsNestedFamily || decl.IsNestedFamilyOrAssembly)) {
 				return false;
 			}
 			decl = (TypeDefinition) decl.DeclaringType;

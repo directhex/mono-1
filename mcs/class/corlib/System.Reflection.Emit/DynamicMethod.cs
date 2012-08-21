@@ -42,6 +42,7 @@ using System.Runtime.InteropServices;
 namespace System.Reflection.Emit {
 
 	[ComVisible (true)]
+	[StructLayout (LayoutKind.Sequential)]
 	public sealed class DynamicMethod : MethodInfo {
 
 #pragma warning disable 169, 414, 649
@@ -110,6 +111,9 @@ namespace System.Reflection.Emit {
 				for (int i = 0; i < parameterTypes.Length; ++i)
 					if (parameterTypes [i] == null)
 						throw new ArgumentException ("Parameter " + i + " is null", "parameterTypes");
+			}
+			if (owner != null && (owner.IsArray || owner.IsInterface)) {
+				throw new ArgumentException ("Owner can't be an array or an interface.");
 			}
 
 			if (m == null)

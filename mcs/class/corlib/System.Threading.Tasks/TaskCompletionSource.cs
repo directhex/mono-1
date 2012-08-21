@@ -34,26 +34,16 @@ namespace System.Threading.Tasks
 {
 	public class TaskCompletionSource<TResult>
 	{
-		static readonly Func<TResult> emptyFunction = () => default (TResult);
-		static readonly Func<object, TResult> emptyParamFunction = (_) => default (TResult);
-
-		static readonly Action<Task<TResult>, TResult> setResultAction = SetResultAction;
-		static readonly Action<Task<TResult>, AggregateException> setExceptionAction = SetExceptionAction;
-		static readonly Action<Task<TResult>, object> setCanceledAction = SetCanceledAction;
-
 		readonly Task<TResult> source;
-		SpinLock opLock = new SpinLock (false);
 
 		public TaskCompletionSource ()
+			: this (null, TaskCreationOptions.None)
 		{
-			source = new Task<TResult> (emptyFunction);
-			source.SetupScheduler (TaskScheduler.Current);
 		}
 		
 		public TaskCompletionSource (object state)
+			: this (state, TaskCreationOptions.None)
 		{
-			source = new Task<TResult> (emptyParamFunction, state);
-			source.SetupScheduler (TaskScheduler.Current);
 		}
 		
 		public TaskCompletionSource (TaskCreationOptions creationOptions)
@@ -66,7 +56,7 @@ namespace System.Threading.Tasks
 			if ((creationOptions & System.Threading.Tasks.Task.WorkerTaskNotSupportedOptions) != 0)
 				throw new ArgumentOutOfRangeException ("creationOptions");
 
-			source = new Task<TResult> (emptyParamFunction, state, creationOptions);
+			source = new Task<TResult> (TaskActionInvoker.Empty, state, CancellationToken.None, creationOptions, null);
 			source.SetupScheduler (TaskScheduler.Current);
 		}
 		
@@ -103,7 +93,7 @@ namespace System.Threading.Tasks
 		
 		public bool TrySetCanceled ()
 		{
-			return ApplyOperation (setCanceledAction, null);
+			return source.TrySetCanceled ();
 		}
 		
 		public bool TrySetException (Exception exception)
@@ -122,57 +112,13 @@ namespace System.Threading.Tasks
 			var aggregate = new AggregateException (exceptions);
 			if (aggregate.InnerExceptions.Count == 0)
 				throw new ArgumentNullException ("exceptions");
-			
-			return ApplyOperation (setExceptionAction, aggregate);
+
+			return source.TrySetException (aggregate);
 		}
 		
 		public bool TrySetResult (TResult result)
 		{
-			return ApplyOperation (setResultAction, result);
-		}
-				
-		bool ApplyOperation<TState> (Action<Task<TResult>, TState> action, TState state)
-		{
-			bool taken = false;
-			try {
-				opLock.Enter (ref taken);
-				if (CheckInvalidState ())
-					return false;
-			
-				source.Status = TaskStatus.Running;
-
-				if (action != null)
-					action (source, state);
-
-				source.Finish ();
-			
-				return true;
-			} finally {
-				if (taken)
-					opLock.Exit ();
-			}
-		}
-		
-		bool CheckInvalidState ()
-		{
-			return source.Status == TaskStatus.RanToCompletion ||
-				   source.Status == TaskStatus.Faulted || 
-				   source.Status == TaskStatus.Canceled;
-		}
-
-		static void SetResultAction (Task<TResult> source, TResult result)
-		{
-			source.Result = result;
-		}
-
-		static void SetExceptionAction (Task<TResult> source, AggregateException aggregate)
-		{
-			source.HandleGenericException (aggregate);
-		}
-
-		static void SetCanceledAction (Task<TResult> source, object unused)
-		{
-			source.CancelReal ();
+			return source.TrySetResult (result);
 		}
 
 		public Task<TResult> Task {

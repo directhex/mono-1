@@ -50,8 +50,11 @@ namespace System.IO
 	{
 		public static readonly Stream Null = new NullStream ();
 
+		[NonSerialized]
 		Func<byte[], int, int, int> async_read;
+		[NonSerialized]
 		Action<byte[], int, int> async_write;
+		[NonSerialized]
 		AutoResetEvent async_event;
 
 		protected Stream ()
@@ -280,7 +283,7 @@ namespace System.IO
 			return CopyToAsync (destination, bufferSize, CancellationToken.None);
 		}
 
-		public Task CopyToAsync (Stream destination, int bufferSize, CancellationToken cancellationToken)
+		public virtual Task CopyToAsync (Stream destination, int bufferSize, CancellationToken cancellationToken)
 		{
 			if (destination == null)
 				throw new ArgumentNullException ("destination");

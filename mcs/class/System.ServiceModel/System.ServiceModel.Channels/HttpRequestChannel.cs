@@ -1,5 +1,5 @@
 //
-// HttpRequestChannel.cs
+// HttpRequestChannel.cs 
 //
 // Author:
 //	Atsushi Enomoto <atsushi@ximian.com>
@@ -163,6 +163,10 @@ namespace System.ServiceModel.Channels
 				if (hp.SuppressEntityBody)
 					suppressEntityBody = true;
 			}
+#if !NET_2_1
+			if (source.ClientCredentials.ClientCertificate.Certificate != null) 
+				((HttpWebRequest)web_request).ClientCertificates.Add (source.ClientCredentials.ClientCertificate.Certificate);
+#endif
 
 			if (!suppressEntityBody && String.Compare (web_request.Method, "GET", StringComparison.OrdinalIgnoreCase) != 0) {
 				MemoryStream buffer = new MemoryStream ();
@@ -218,6 +222,29 @@ namespace System.ServiceModel.Channels
 					channelResult.Complete (we);
 					return;
 				}
+
+
+				var hrr2 = (HttpWebResponse) res;
+				
+				if ((int) hrr2.StatusCode >= 400 && (int) hrr2.StatusCode < 500) {
+					Exception exception = new WebException (
+						String.Format ("There was an error on processing web request: Status code {0}({1}): {2}",
+							       (int) hrr2.StatusCode, hrr2.StatusCode, hrr2.StatusDescription), null,
+						WebExceptionStatus.ProtocolError, hrr2); 
+					
+					if ((int) hrr2.StatusCode == 404) {
+						// Throw the same exception .NET does
+						exception = new EndpointNotFoundException (
+							"There was no endpoint listening at {0} that could accept the message. This is often caused by an incorrect address " +
+							"or SOAP action. See InnerException, if present, for more details.",
+							exception);
+					}
+					
+					channelResult.Complete (exception);
+					return;
+				}
+
+
 				try {
 					// The response might contain SOAP fault. It might not.
 					resstr = res.GetResponseStream ();

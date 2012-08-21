@@ -145,6 +145,8 @@ namespace MonoTests.System.Configuration {
 			FileInfo fi = new FileInfo (config.FilePath);
 #if TARGET_JVM
 			Assert.AreEqual ("nunit-console.jar.config", fi.Name);
+#elif NET_4_5
+			Assert.AreEqual ("System.Configuration_test_net_4_5.dll.config", fi.Name);
 #elif NET_4_0
 			Assert.AreEqual ("System.Configuration_test_net_4_0.dll.config", fi.Name);
 #else
@@ -201,8 +203,15 @@ namespace MonoTests.System.Configuration {
 			exePath = "relative.exe";
 			File.Create (Path.Combine (tempFolder, exePath)).Close ();
 
-			config = ConfigurationManager.OpenExeConfiguration (exePath);
-			Assert.AreEqual (Path.Combine (tempFolder, exePath + ".config"), config.FilePath, "#4");
+			//
+			// The temp directory as computed by the runtime is slightly different, as
+			// it will contain the full path after following links, while the test
+			// below is not comprehensive enough to follow links if there are any
+			// present in tempFolder
+			//
+			
+			//config = ConfigurationManager.OpenExeConfiguration (exePath);
+			//Assert.AreEqual (Path.Combine (tempFolder, exePath + ".config"), config.FilePath, "#4");
 		}
 
 		[Test] // OpenExeConfiguration (String)
@@ -445,6 +454,40 @@ namespace MonoTests.System.Configuration {
 			e.MoveNext ();
 			Assert.IsTrue (e.Current is ConfigurationSection);
 		}
+
+		[Test]	// Test for bug #3412
+		[Category("NotWorking")]
+		public void TestAddRemoveSection()
+		{
+			const string name = "testsection";
+			var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+
+			// ensure not present
+			if (config.Sections.Get(name) != null)
+			{
+				config.Sections.Remove(name);
+			}
+
+			// add
+			config.Sections.Add(name, new TestSection());
+
+			// remove
+			var section = config.Sections.Get(name);
+			Assert.IsNotNull(section);
+			Assert.IsNotNull(section as TestSection);
+			config.Sections.Remove(name);
+
+			// add
+			config.Sections.Add(name, new TestSection());
+
+			// remove
+			section = config.Sections.Get(name);
+			Assert.IsNotNull(section);
+			Assert.IsNotNull(section as TestSection);
+			config.Sections.Remove(name);
+		}
+			
+		class TestSection : ConfigurationSection  {}
 
 		class RemoteConfig : MarshalByRefObject
 		{

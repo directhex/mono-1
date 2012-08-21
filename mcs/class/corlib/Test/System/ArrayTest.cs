@@ -12,10 +12,7 @@ using System;
 using System.Collections;
 using System.Globalization;
 using System.Reflection;
-
-#if NET_2_0
 using System.Collections.Generic;
-#endif
 
 namespace MonoTests.System
 {
@@ -228,7 +225,23 @@ public class ArrayTest
 		Assert.AreEqual (-1, Array.BinarySearch (o, 0, 3, null, null), "O=a,i,i,o,c");
 	}
 
-	// TODO - testBinarySearch with explicit IComparer args
+	class TestComparer7 : IComparer<int>
+	{
+		public int Compare (int x, int y)
+		{
+			if (y != 7)
+				throw new ApplicationException ();
+
+			return x.CompareTo (y);
+		}
+	}
+
+	[Test]
+	public void BinarySearch_WithComparer ()
+	{
+		var a = new int[] { 2, 6, 9 };
+		Assert.AreEqual (-3, Array.BinarySearch (a, 7, new TestComparer7 ()));
+	}
 
 	[Test]
 	public void TestClear() {
@@ -660,7 +673,7 @@ public class ArrayTest
 			}
 			Assert.IsTrue (errorThrown, "#F03a");
 		}
-#if NET_1_1
+
 		{
 			bool errorThrown = false;
 			try {
@@ -670,7 +683,6 @@ public class ArrayTest
 			}
 			Assert.IsTrue (errorThrown, "#F03b");
 		}
-#endif
 #if !TARGET_JVM // Arrays lower bounds are not supported for TARGET_JVM
 		{
 			bool errorThrown = false;
@@ -746,11 +758,7 @@ public class ArrayTest
 	}
 
 	[Test]
-#if NET_2_0
 	[ExpectedException (typeof (ArgumentNullException))]
-#else
-	[ExpectedException (typeof (NullReferenceException))]
-#endif
 	public void TestCreateInstance2b ()
 	{
 		Array.CreateInstance (typeof (Int32), (long[])null);
@@ -1211,11 +1219,7 @@ public class ArrayTest
 	}
 
 	[Test]
-#if NET_2_0
 	[ExpectedException (typeof (ArgumentNullException))]
-#else
-	[ExpectedException (typeof (NullReferenceException))]
-#endif
 	public void TestGetValueLongArray ()
 	{
 		char[] c = new Char[2];
@@ -1544,12 +1548,10 @@ public class ArrayTest
 			NUnit.Framework.Assert.Fail ("#1");
 		} catch (ArgumentOutOfRangeException) { }
 		
-#if NET_2_0		
 		try {
 			Array.LastIndexOf<short> (a, 16, -1);
 			NUnit.Framework.Assert.Fail ("#2");
 		} catch (ArgumentOutOfRangeException) { }
-#endif		
 	}
 
 	[Test]
@@ -1868,11 +1870,7 @@ public class ArrayTest
 	}
 
 	[Test]
-#if NET_2_0
 	[ExpectedException (typeof (ArgumentNullException))]
-#else
-	[ExpectedException (typeof (NullReferenceException))]
-#endif
 	public void TestSetValueLongArray ()
 	{
 		char[] c = new Char[2];
@@ -2830,7 +2828,6 @@ public class ArrayTest
 		Assert.IsTrue (!comparer.Called, "Called");
 	}
 
-#if NET_2_0
 	[Test]
 	[ExpectedException (typeof (ArgumentNullException))]
 	public void AsReadOnly_NullArray ()
@@ -3013,6 +3010,9 @@ public class ArrayTest
 		test = new object[] {null};
 		Assert.AreEqual (test.Contains (null), true, "array with null");
 
+		test = new object[] { 1, null};
+		Assert.IsTrue (test.Contains (null), "array with last null");
+		
 		test = new List<object>(test);
 		Assert.AreEqual (test.Contains (null), true, "List<object> with test");
 		
@@ -3022,8 +3022,35 @@ public class ArrayTest
 		test = new List<object>(test);
 		Assert.AreEqual (test.Contains (null), false, "array with test");
 	}
+	
+	[Test]
+	public void IListNull ()
+	{
+		IList<object> test;
+		
+		test = new List<object>();
+		Assert.AreEqual (-1, test.IndexOf (null), "list<o>");
+
+		test = new object[] {};
+		Assert.AreEqual (-1, test.IndexOf (null), "empty array");
+
+		test = new object[] {null};
+		Assert.AreEqual (0, test.IndexOf (null), "array with null");
+
+		test = new object[] { 1, null};
+		Assert.AreEqual (1, test.IndexOf (null), "array with last null");
+		
+		test = new List<object>(test);
+		Assert.AreEqual (1, test.IndexOf (null), "List<object> with test");
+		
+		test = new object[] {new object()};
+		Assert.AreEqual (-1, test.IndexOf (null), "array with object");
+
+		test = new List<object>(test);
+		Assert.AreEqual (-1, test.IndexOf (null), "array with test");
+	}
+	
 #endif // TARGET_JVM
-#endif
 
 	#region Bug 80299
 
@@ -3065,7 +3092,6 @@ public class ArrayTest
 
 	#endregion
 
-#if NET_2_0
 	[Test] // bug #322248
 	public void IEnumerator_Reset ()
 	{
@@ -3144,7 +3170,6 @@ public class ArrayTest
 
 		Assert.IsTrue (arr.IsReadOnly);
 	}
-#endif
 
 	[Test]
 	[ExpectedException (typeof (NotSupportedException))]

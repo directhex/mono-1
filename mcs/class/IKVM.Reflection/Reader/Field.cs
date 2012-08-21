@@ -94,45 +94,23 @@ namespace IKVM.Reflection.Reader
 		{
 			get
 			{
-				int rid = index + 1;
-				// TODO binary search?
-				for (int i = 0; i < module.FieldRVA.records.Length; i++)
+				foreach (int i in module.FieldRVA.Filter(index + 1))
 				{
-					if (module.FieldRVA.records[i].Field == rid)
-					{
-						return module.FieldRVA.records[i].RVA;
-					}
+					return module.FieldRVA.records[i].RVA;
 				}
 				throw new InvalidOperationException();
 			}
 		}
 
-		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
+		public override bool __TryGetFieldOffset(out int offset)
 		{
-			List<CustomAttributeData> list = module.GetCustomAttributes(this.MetadataToken, attributeType);
-			if ((this.Attributes & FieldAttributes.HasFieldMarshal) != 0
-				&& (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_MarshalAsAttribute)))
+			foreach (int i in this.Module.FieldLayout.Filter(index + 1))
 			{
-				list.Add(MarshalSpec.GetMarshalAsAttribute(module, this.MetadataToken));
+				offset = this.Module.FieldLayout.records[i].Offset;
+				return true;
 			}
-			if (declaringType.IsExplicitLayout
-				&& (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_FieldOffsetAttribute)))
-			{
-				int rid = index + 1;
-				// TODO use binary search?
-				for (int i = 0; i < module.FieldLayout.records.Length; i++)
-				{
-					if (module.FieldLayout.records[i].Field == rid)
-					{
-						ConstructorInfo constructor = module.universe.System_Runtime_InteropServices_FieldOffsetAttribute.GetPseudoCustomAttributeConstructor(module.universe.System_Int32);
-						list.Add(new CustomAttributeData(module, constructor,
-							new object[] { module.FieldLayout.records[i].Offset },
-							null));
-						break;
-					}
-				}
-			}
-			return list;
+			offset = 0;
+			return false;
 		}
 
 		internal override FieldSignature FieldSignature
@@ -143,6 +121,16 @@ namespace IKVM.Reflection.Reader
 		internal override int ImportTo(Emit.ModuleBuilder module)
 		{
 			return module.ImportMethodOrField(declaringType, this.Name, this.FieldSignature);
+		}
+
+		internal override int GetCurrentToken()
+		{
+			return this.MetadataToken;
+		}
+
+		internal override bool IsBaked
+		{
+			get { return true; }
 		}
 	}
 }

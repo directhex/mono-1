@@ -149,50 +149,163 @@ namespace MonoTests.System.Threading.Tasks
 		}
 
 		[Test]
-		public void ContinueWhenAllTest ()
+		public void ContinueWhenAll_Simple ()
 		{
-			bool r1 = false, r2 = false, r3 = false;
+			var mre = new ManualResetEventSlim (false);
 
 			Task[] tasks = new Task[3];
-			tasks[0] = new Task (() => { Thread.Sleep (100); r1 = true; });
-			tasks[1] = new Task (() => { Thread.Sleep (500); r2 = true; });
-			tasks[2] = new Task (() => { Thread.Sleep (300); r3 = true; });
+			tasks[0] = new Task (() => { Thread.Sleep (0); Assert.IsTrue (mre.Wait (3000)); });
+			tasks[1] = new Task (() => { Assert.IsTrue (mre.Wait (3000)); });
+			tasks[2] = new Task (() => { Assert.IsTrue (mre.Wait (3000)); });
 
-			bool result = false;
-
-			Task cont = factory.ContinueWhenAll (tasks, (ts) => { if (r1 && r2 && r3) result = true; });
+			bool ran = false;
+			Task cont = factory.ContinueWhenAll (tasks, ts => {
+				Assert.AreEqual (tasks, ts, "#0");
+				ran = true;
+			});
 
 			foreach (Task t in tasks)
 				t.Start ();
 
-			Assert.IsTrue (cont.Wait (1000), "#0");
+			mre.Set ();
 
-			Assert.IsTrue (r1, "#1");
-			Assert.IsTrue (r2, "#2");
-			Assert.IsTrue (r3, "#3");
-			Assert.IsTrue (result, "#4");
+			Assert.IsTrue (cont.Wait (1000), "#1");
+			Assert.IsTrue (ran, "#2");
 		}
 
 		[Test]
-		public void ContinueWhenAnyTest ()
+		public void ContinueWhenAll_WithMixedCompletionState ()
 		{
-			bool r = false, result = false, finished = false;
+			var mre = new ManualResetEventSlim ();
+			var task = Task.Factory.StartNew (() => mre.Wait (200));
+			var contFailed = task.ContinueWith (t => {}, TaskContinuationOptions.OnlyOnFaulted);
+			var contCanceled = task.ContinueWith (t => {}, TaskContinuationOptions.OnlyOnCanceled);
+			var contSuccess = task.ContinueWith (t => {}, TaskContinuationOptions.OnlyOnRanToCompletion);
+			bool ran = false;
 
-			Task[] tasks = new Task[2];
-			tasks[0] = new Task (() => { Thread.Sleep (300); r = true; });
-			tasks[1] = new Task (() => { SpinWait sw = new SpinWait (); while (!finished) sw.SpinOnce (); });
-			//tasks[2] = new Task (() => { SpinWait sw; while (!finished) sw.SpinOnce (); });
+			var cont = Task.Factory.ContinueWhenAll (new Task[] { contFailed, contCanceled, contSuccess }, _ => ran = true);
 
-			Task cont = factory.ContinueWhenAny (tasks, (t) => { if (r) result = t == tasks[0]; finished = true; });
+			mre.Set ();
+			cont.Wait (200);
 
-			foreach (Task t in tasks)
-				t.Start ();
+			Assert.IsTrue (ran);
+			Assert.AreEqual (TaskStatus.RanToCompletion, cont.Status);
+		}
 
-			Assert.IsTrue (cont.Wait (2000), "#0");
+		[Test]
+		public void ContinueWhenAll_InvalidArguments ()
+		{
+			try {
+				factory.ContinueWhenAll (null, delegate { });
+				Assert.Fail ("#1");
+			} catch (ArgumentNullException) {
+			}
 
-			Assert.IsTrue (r, "#1");
-			Assert.IsTrue (result, "#2");
-			Assert.IsTrue (finished, "#3");
+			try {
+				factory.ContinueWhenAll (new Task[0], delegate { });
+				Assert.Fail ("#2");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAll (new Task[] { null }, delegate { });
+				Assert.Fail ("#3");
+			} catch (ArgumentException) {
+			}
+
+			var tasks = new Task [] {
+				factory.StartNew (delegate {})
+			};
+
+			try {
+				factory.ContinueWhenAll (tasks, null);
+				Assert.Fail ("#4");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAll (tasks, delegate { }, CancellationToken.None, TaskContinuationOptions.None, null);
+				Assert.Fail ("#5");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAll (tasks, delegate { }, CancellationToken.None, TaskContinuationOptions.OnlyOnCanceled, null);
+				Assert.Fail ("#6");
+			} catch (ArgumentException) {
+			}
+		}
+
+		[Test]
+		public void ContinueWhenAny_Simple ()
+		{
+			var t1 = new ManualResetEvent (false);
+			var t2 = new ManualResetEvent (false);
+
+			var tasks = new Task[2] {
+				Task.Factory.StartNew (() => { t1.WaitOne (3000); }),
+				Task.Factory.StartNew (() => { t2.WaitOne (3000); })
+			};
+
+			bool ran = false;
+			var ct = new CancellationToken ();
+			Task cont = factory.ContinueWhenAny (tasks, t => {
+				Assert.AreEqual (tasks[0], t, "#1");
+				ran = true;
+			}, ct);
+
+			Assert.AreEqual (TaskStatus.WaitingForActivation, cont.Status, "#2");
+
+			t1.Set ();
+
+			Assert.IsTrue (cont.Wait (2000), "#10");
+			Assert.IsTrue (ran, "#11");
+
+			t2.Set ();
+		}
+
+		[Test]
+		public void ContinueWhenAny_InvalidArguments ()
+		{
+			try {
+				factory.ContinueWhenAny (null, delegate { });
+				Assert.Fail ("#1");
+			} catch (ArgumentNullException) {
+			}
+
+			try {
+				factory.ContinueWhenAny (new Task[0], delegate { });
+				Assert.Fail ("#2");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAny (new Task[] { null }, delegate { });
+				Assert.Fail ("#3");
+			} catch (ArgumentException) {
+			}
+
+			var tasks = new Task [] {
+				factory.StartNew (delegate {})
+			};
+
+			try {
+				factory.ContinueWhenAny (tasks, null);
+				Assert.Fail ("#4");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAny (tasks, delegate { }, CancellationToken.None, TaskContinuationOptions.None, null);
+				Assert.Fail ("#5");
+			} catch (ArgumentException) {
+			}
+
+			try {
+				factory.ContinueWhenAny (tasks, delegate { }, CancellationToken.None, TaskContinuationOptions.OnlyOnCanceled, null);
+				Assert.Fail ("#6");
+			} catch (ArgumentException) {
+			}
 		}
 
 		[Test]
@@ -236,7 +349,7 @@ namespace MonoTests.System.Threading.Tasks
 			bool result = false;
 			bool continuationTest = false;
 
-			Func<int, int> func = (i) => { result = true; throw new ApplicationException ("bleh"); return i + 3; };
+			Func<int, int> func = (i) => { result = true; throw new ApplicationException ("bleh"); };
 			Task<int> task = factory.FromAsync<int, int> (func.BeginInvoke, func.EndInvoke, 1, null);
 			var cont = task.ContinueWith (_ => continuationTest = true, TaskContinuationOptions.ExecuteSynchronously);
 			try {

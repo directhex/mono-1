@@ -1,3 +1,8 @@
+/*
+ * Copyright 2002-2003 Ximian Inc
+ * Copyright 2003-2011 Novell Inc
+ * Copyright 2011 Xamarin Inc
+ */
 #ifndef __MONO_MINI_H__
 #define __MONO_MINI_H__
 
@@ -31,6 +36,7 @@
 #include "regalloc.h"
 #include "declsec.h"
 #include "mini-unwind.h"
+#include "jit.h"
 
 #ifndef G_LIKELY
 #define G_LIKELY(a) (a)
@@ -113,7 +119,7 @@
 #endif
 
 /* Version number of the AOT file format */
-#define MONO_AOT_FILE_VERSION 79
+#define MONO_AOT_FILE_VERSION 83
 
 //TODO: This is x86/amd64 specific.
 #define mono_simd_shuffle_mask(a,b,c,d) ((a) | ((b) << 2) | ((c) << 4) | ((d) << 6))
@@ -147,7 +153,9 @@ enum {
 	/* array */
 	MONO_AOT_TYPEREF_ARRAY = 6,
 	/* blob index of the type encoding */
-	MONO_AOT_TYPEREF_BLOB_INDEX = 7
+	MONO_AOT_TYPEREF_BLOB_INDEX = 7,
+	/* ptr */
+	MONO_AOT_TYPEREF_PTR = 8
 };
 
 /* Trampolines which we have a lot of */
@@ -234,6 +242,8 @@ typedef struct MonoAotFileInfo
 	guint32 flags;
 	/* Optimization flags used to compile the module */
 	guint32 opts;
+	/* SIMD flags used to compile the module */
+	guint32 simd_opts;
 	/* Index of the blob entry holding the GC used by this module */
 	gint32 gc_name_index;
 
@@ -1253,6 +1263,9 @@ typedef struct {
 
 	MonoGenericSharingContext *generic_sharing_context;
 
+	/* For native-to-managed wrappers, the saved old domain */
+	MonoInst *orig_domain_var;
+
 	unsigned char   *cil_start;
 #ifdef __native_client_codegen__
 	/* this alloc is not aligned, native_code */
@@ -1311,6 +1324,7 @@ typedef struct {
 	guint            explicit_null_checks : 1;
 	guint            compute_gc_maps : 1;
 	guint            soft_breakpoints : 1;
+	guint            arch_eh_jit_info : 1;
 	gpointer         debug_info;
 	guint32          lmf_offset;
     guint16          *intvars;
@@ -1407,6 +1421,12 @@ typedef struct {
 	int llvm_this_reg, llvm_this_offset;
 
 	GSList *try_block_holes;
+
+	/* DWARF location list for 'this' */
+	GSList *this_loclist;
+
+	/* DWARF location list for 'rgctx_var' */
+	GSList *rgctx_loclist;
 
 	/* GC Maps */
    
@@ -1647,6 +1667,14 @@ typedef struct {
 	 * is hit.
 	 */
 	gboolean soft_breakpoints;
+	/*
+	 * Whenever to break in the debugger using G_BREAKPOINT on unhandled exceptions.
+	 */
+	gboolean break_on_exc;
+	/*
+	 * Load AOT JIT info eagerly.
+	 */
+	gboolean load_aot_jit_info_eagerly;
 } MonoDebugOptions;
 
 enum {
@@ -1726,10 +1754,11 @@ void        mono_set_defaults              (int verbose_level, guint32 opts);
 MonoDomain* mini_init                      (const char *filename, const char *runtime_version) MONO_INTERNAL;
 void        mini_cleanup                   (MonoDomain *domain) MONO_INTERNAL;
 MonoDebugOptions *mini_get_debug_options   (void) MONO_INTERNAL;
-char*       mono_get_runtime_build_info    (void) MONO_INTERNAL;
 
 /* helper methods */
 void      mono_disable_optimizations       (guint32 opts) MONO_INTERNAL;
+void      mono_set_optimizations           (guint32 opts) MONO_INTERNAL;
+void      mono_set_verbose_level           (guint32 level) MONO_INTERNAL;
 MonoJumpInfoToken* mono_jump_info_token_new (MonoMemPool *mp, MonoImage *image, guint32 token) MONO_INTERNAL;
 MonoJumpInfoToken* mono_jump_info_token_new2 (MonoMemPool *mp, MonoImage *image, guint32 token, MonoGenericContext *context) MONO_INTERNAL;
 MonoInst* mono_find_spvar_for_region        (MonoCompile *cfg, int region) MONO_INTERNAL;
@@ -1802,7 +1831,8 @@ gpointer  mono_jit_compile_method           (MonoMethod *method) MONO_INTERNAL;
 MonoLMF * mono_get_lmf                      (void) MONO_INTERNAL;
 MonoLMF** mono_get_lmf_addr                 (void) MONO_INTERNAL;
 void      mono_set_lmf                      (MonoLMF *lmf) MONO_INTERNAL;
-void      mono_jit_thread_attach            (MonoDomain *domain);
+MonoDomain *mono_jit_thread_attach          (MonoDomain *domain);
+void      mono_jit_set_domain               (MonoDomain *domain);
 MonoNativeTlsKey mono_get_jit_tls_key       (void) MONO_INTERNAL;
 gint32    mono_get_jit_tls_offset           (void) MONO_INTERNAL;
 gint32    mono_get_lmf_tls_offset           (void) MONO_INTERNAL;
@@ -1810,6 +1840,7 @@ gint32    mono_get_lmf_addr_tls_offset      (void) MONO_INTERNAL;
 MonoInst* mono_get_jit_tls_intrinsic        (MonoCompile *cfg) MONO_INTERNAL;
 MonoInst* mono_get_domain_intrinsic         (MonoCompile* cfg) MONO_INTERNAL;
 MonoInst* mono_get_thread_intrinsic         (MonoCompile* cfg) MONO_INTERNAL;
+MonoInst* mono_get_lmf_intrinsic            (MonoCompile* cfg) MONO_INTERNAL;
 GList    *mono_varlist_insert_sorted        (MonoCompile *cfg, GList *list, MonoMethodVar *mv, int sort_type) MONO_INTERNAL;
 GList    *mono_varlist_sort                 (MonoCompile *cfg, GList *list, int sort_type) MONO_INTERNAL;
 void      mono_analyze_liveness             (MonoCompile *cfg) MONO_INTERNAL;
@@ -1827,6 +1858,7 @@ gboolean  mini_assembly_can_skip_verification (MonoDomain *domain, MonoMethod *m
 gboolean mono_compile_is_broken (MonoCompile *cfg, MonoMethod *method, gboolean fail_compile) MONO_INTERNAL;
 MonoInst *mono_get_got_var (MonoCompile *cfg) MONO_INTERNAL;
 void      mono_add_seq_point (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst *ins, int native_offset) MONO_INTERNAL;
+void      mono_add_var_location (MonoCompile *cfg, MonoInst *var, gboolean is_reg, int reg, int offset, int from, int to) MONO_INTERNAL;
 MonoInst* mono_emit_jit_icall (MonoCompile *cfg, gconstpointer func, MonoInst **args) MONO_INTERNAL;
 MonoInst* mono_emit_method_call (MonoCompile *cfg, MonoMethod *method, MonoInst **args, MonoInst *this) MONO_INTERNAL;
 void      mono_create_helper_signatures (void) MONO_INTERNAL;
@@ -1951,7 +1983,7 @@ gpointer          mono_create_generic_class_init_trampoline (void) MONO_INTERNAL
 gpointer          mono_create_jit_trampoline (MonoMethod *method) MONO_INTERNAL;
 gpointer          mono_create_jit_trampoline_from_token (MonoImage *image, guint32 token) MONO_INTERNAL;
 gpointer          mono_create_jit_trampoline_in_domain (MonoDomain *domain, MonoMethod *method) MONO_LLVM_INTERNAL;
-gpointer          mono_create_delegate_trampoline (MonoClass *klass) MONO_INTERNAL;
+gpointer          mono_create_delegate_trampoline (MonoDomain *domain, MonoClass *klass) MONO_INTERNAL;
 gpointer          mono_create_rgctx_lazy_fetch_trampoline (guint32 offset) MONO_INTERNAL;
 gpointer          mono_create_monitor_enter_trampoline (void) MONO_INTERNAL;
 gpointer          mono_create_monitor_exit_trampoline (void) MONO_INTERNAL;
@@ -2017,9 +2049,10 @@ void              mono_if_conversion (MonoCompile *cfg) MONO_INTERNAL;
 
 /* methods that must be provided by the arch-specific port */
 void      mono_arch_init                        (void) MONO_INTERNAL;
+void      mono_arch_finish_init                 (void) MONO_INTERNAL;
 void      mono_arch_cleanup                     (void) MONO_INTERNAL;
 void      mono_arch_cpu_init                    (void) MONO_INTERNAL;
-guint32   mono_arch_cpu_optimizazions           (guint32 *exclude_mask) MONO_INTERNAL;
+guint32   mono_arch_cpu_optimizations           (guint32 *exclude_mask) MONO_INTERNAL;
 void      mono_arch_instrument_mem_needs        (MonoMethod *method, int *stack, int *code) MONO_INTERNAL;
 void     *mono_arch_instrument_prolog           (MonoCompile *cfg, void *func, void *p, gboolean enable_arguments) MONO_INTERNAL;
 void     *mono_arch_instrument_epilog           (MonoCompile *cfg, void *func, void *p, gboolean enable_arguments) MONO_INTERNAL;
@@ -2052,7 +2085,6 @@ void      mono_arch_lowering_pass               (MonoCompile *cfg, MonoBasicBloc
 void      mono_arch_peephole_pass_1             (MonoCompile *cfg, MonoBasicBlock *bb) MONO_INTERNAL;
 void      mono_arch_peephole_pass_2             (MonoCompile *cfg, MonoBasicBlock *bb) MONO_INTERNAL;
 void      mono_arch_output_basic_block          (MonoCompile *cfg, MonoBasicBlock *bb) MONO_INTERNAL;
-void      mono_arch_setup_jit_tls_data          (MonoJitTlsData *tls) MONO_INTERNAL;
 void      mono_arch_free_jit_tls_data           (MonoJitTlsData *tls) MONO_INTERNAL;
 void      mono_arch_fill_argument_info          (MonoCompile *cfg) MONO_INTERNAL;
 void      mono_arch_allocate_vars               (MonoCompile *m) MONO_INTERNAL;
@@ -2083,9 +2115,7 @@ void      mono_arch_start_single_stepping       (void) MONO_INTERNAL;
 void      mono_arch_stop_single_stepping        (void) MONO_INTERNAL;
 gboolean  mono_arch_is_single_step_event        (void *info, void *sigctx) MONO_INTERNAL;
 gboolean  mono_arch_is_breakpoint_event         (void *info, void *sigctx) MONO_INTERNAL;
-guint8*   mono_arch_get_ip_for_single_step      (MonoJitInfo *ji, MonoContext *ctx) MONO_INTERNAL;
-guint8*   mono_arch_get_ip_for_breakpoint       (MonoJitInfo *ji, MonoContext *ctx) MONO_INTERNAL;
-void     mono_arch_skip_breakpoint              (MonoContext *ctx) MONO_INTERNAL;
+void     mono_arch_skip_breakpoint              (MonoContext *ctx, MonoJitInfo *ji) MONO_INTERNAL;
 void     mono_arch_skip_single_step             (MonoContext *ctx) MONO_INTERNAL;
 gpointer mono_arch_get_seq_point_info           (MonoDomain *domain, guint8 *code) MONO_INTERNAL;
 void     mono_arch_setup_resume_sighandler_ctx  (MonoContext *ctx, gpointer func) MONO_INTERNAL;
@@ -2445,7 +2475,7 @@ void mono_runtime_setup_stat_profiler (void) MONO_INTERNAL;
 void mono_runtime_shutdown_stat_profiler (void) MONO_INTERNAL;
 void mono_runtime_posix_install_handlers (void) MONO_INTERNAL;
 pid_t mono_runtime_syscall_fork (void) MONO_INTERNAL;
-gboolean mono_gdb_render_native_backtraces (void) MONO_INTERNAL;
+void mono_gdb_render_native_backtraces (pid_t crashed_pid) MONO_INTERNAL;
 
 /*
  * Signal handling
@@ -2492,30 +2522,5 @@ void SIG_HANDLER_SIGNATURE (mono_sigill_signal_handler)  MONO_INTERNAL;
 void SIG_HANDLER_SIGNATURE (mono_sigsegv_signal_handler) MONO_INTERNAL;
 void SIG_HANDLER_SIGNATURE (mono_sigint_signal_handler)  MONO_INTERNAL;
 gboolean SIG_HANDLER_SIGNATURE (mono_chain_signal) MONO_INTERNAL;
-
-/* Subtypes of some wrapper types */
-enum {
-	MONO_AOT_WRAPPER_MONITOR_ENTER,
-	MONO_AOT_WRAPPER_MONITOR_EXIT,
-	MONO_AOT_WRAPPER_ELEMENT_ADDR,
-	MONO_AOT_WRAPPER_PTR_TO_STRUCTURE,
-	MONO_AOT_WRAPPER_STRUCTURE_TO_PTR,
-	MONO_AOT_WRAPPER_CASTCLASS_WITH_CACHE,
-	MONO_AOT_WRAPPER_ISINST_WITH_CACHE,
-	MONO_AOT_WRAPPER_MONITOR_ENTER_V4,
-	MONO_AOT_WRAPPER_JIT_ICALL,
-	MONO_AOT_WRAPPER_RUNTIME_INVOKE_DYNAMIC,
-	MONO_AOT_WRAPPER_RUNTIME_INVOKE_DIRECT,
-	MONO_AOT_WRAPPER_RUNTIME_INVOKE_VIRTUAL,
-	/*
-	 * We can't encode this wrapper directly, so we emit its name instead.
-	 * This means that its not possible to decode this into a method, only to check
-	 * that the method reference matches a given method. This is normally not a problem
-	 * as these wrappers only occur in the extra_methods table, where we already have
-	 * a method we want to lookup.
-	 */
-	MONO_AOT_WRAPPER_BY_NAME,
-	MONO_AOT_WRAPPER_LAST
-};
 
 #endif /* __MONO_MINI_H__ */

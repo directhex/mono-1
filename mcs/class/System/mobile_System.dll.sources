@@ -15,6 +15,7 @@ System.Collections.Generic/Queue.cs
 System.Collections.Generic/RBTree.cs
 System.Collections.Generic/SortedDictionary.cs
 System.Collections.Generic/SortedList.cs
+System.Collections.Generic/SortedSet.cs
 System.Collections.Generic/Stack.cs
 System.Collections.ObjectModel/ObservableCollection.cs
 System.Collections.ObjectModel/ReadOnlyObservableCollection.cs
@@ -121,6 +122,7 @@ System.ComponentModel/IDataErrorInfo.cs
 System.ComponentModel/IEditableObject.cs
 System.ComponentModel/IListSource.cs
 System.ComponentModel/INotifyPropertyChanged.cs
+System.ComponentModel/INotifyPropertyChanging.cs
 System.ComponentModel/IRevertibleChangeTracking.cs
 System.ComponentModel/ISite.cs
 System.ComponentModel/ISupportInitialize.cs
@@ -153,6 +155,8 @@ System.ComponentModel/ProgressChangedEventArgs.cs
 System.ComponentModel/ProgressChangedEventHandler.cs
 System.ComponentModel/PropertyChangedEventArgs.cs
 System.ComponentModel/PropertyChangedEventHandler.cs
+System.ComponentModel/PropertyChangingEventArgs.cs
+System.ComponentModel/PropertyChangingEventHandler.cs
 System.ComponentModel/PropertyDescriptor.cs
 System.ComponentModel/PropertyDescriptor.cs
 System.ComponentModel/PropertyDescriptorCollection.cs
@@ -190,7 +194,8 @@ System.ComponentModel/WeakObjectWrapperComparer.cs
 System.ComponentModel/Win32Exception.cs
 System.Diagnostics/DataReceivedEventArgs.cs
 System.Diagnostics/DataReceivedEventHandler.cs
-System.Diagnostics/Debug_2_1.cs
+System.Diagnostics/Debug.cs
+System.Diagnostics/DefaultTraceListener.cs
 System.Diagnostics/FileVersionInfo.cs
 System.Diagnostics/MonitoringDescriptionAttribute.cs
 System.Diagnostics/Process.cs
@@ -202,6 +207,10 @@ System.Diagnostics/ProcessThread.cs
 System.Diagnostics/ProcessThreadCollection.cs
 System.Diagnostics/ProcessWindowStyle.cs
 System.Diagnostics/Stopwatch.cs
+System.Diagnostics/TraceImpl.cs
+System.Diagnostics/TraceListener.cs
+System.Diagnostics/TraceListenerCollection.cs
+System.Diagnostics/TraceOptions.cs
 System.Diagnostics/ThreadPriorityLevel.cs
 System.Diagnostics/ThreadState.cs
 System.Diagnostics/ThreadWaitReason.cs
@@ -397,6 +406,7 @@ System.Net/IWebProxyScript.cs
 System.Net/IWebRequestCreate.cs
 System.Net/ListenerAsyncResult.cs
 System.Net/ListenerPrefix.cs
+System.Net/MacProxy.cs
 System.Net/MonoHttpDate.cs
 System.Net/NetConfig.cs
 System.Net/NetworkAccess.cs
@@ -543,3 +553,6 @@ System/UriKind.cs
 System/UriParser.cs
 System/UriPartial.cs
 System/UriTypeConverter.cs
+System/UriElements.cs
+System/UriParseComponents.cs
+System.Windows.Input/ICommand.cs

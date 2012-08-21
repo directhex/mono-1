@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 Jeroen Frijters
+  Copyright (C) 2011-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -102,7 +102,7 @@ namespace IKVM.Reflection
 
 		public MissingGenericMethodBuilder(Type declaringType, CallingConventions callingConvention, string name, int genericParameterCount)
 		{
-			method = new MissingMethod(declaringType, name, new MethodSignature(null, null, null, callingConvention, genericParameterCount));
+			method = new MissingMethod(declaringType, name, new MethodSignature(null, null, new PackedCustomModifiers(), callingConvention, genericParameterCount));
 		}
 
 		public Type[] GetGenericArguments()
@@ -110,6 +110,17 @@ namespace IKVM.Reflection
 			return method.GetGenericArguments();
 		}
 
+		public void SetSignature(Type returnType, CustomModifiers returnTypeCustomModifiers, Type[] parameterTypes, CustomModifiers[] parameterTypeCustomModifiers)
+		{
+			method.signature = new MethodSignature(
+				returnType ?? method.Module.universe.System_Void,
+				Util.Copy(parameterTypes),
+				PackedCustomModifiers.CreateFromExternal(returnTypeCustomModifiers, parameterTypeCustomModifiers, parameterTypes.Length),
+				method.signature.CallingConvention,
+				method.signature.GenericParameterCount);
+		}
+
+		[Obsolete("Please use SetSignature(Type, CustomModifiers, Type[], CustomModifiers[]) instead.")]
 		public void SetSignature(Type returnType, Type[] returnTypeRequiredCustomModifiers, Type[] returnTypeOptionalCustomModifiers, Type[] parameterTypes, Type[][] parameterTypeRequiredCustomModifiers, Type[][] parameterTypeOptionalCustomModifiers)
 		{
 			method.signature = new MethodSignature(
@@ -129,13 +140,12 @@ namespace IKVM.Reflection
 	sealed class MissingAssembly : Assembly
 	{
 		private readonly MissingModule module;
-		private readonly string name;
 
 		internal MissingAssembly(Universe universe, string name)
 			: base(universe)
 		{
 			module = new MissingModule(this);
-			this.name = name;
+			this.fullName = name;
 		}
 
 		public override Type[] GetTypes()
@@ -143,14 +153,9 @@ namespace IKVM.Reflection
 			throw new MissingAssemblyException(this);
 		}
 
-		public override string FullName
-		{
-			get { return name; }
-		}
-
 		public override AssemblyName GetName()
 		{
-			return new AssemblyName(name);
+			return new AssemblyName(fullName);
 		}
 
 		public override string ImageRuntimeVersion
@@ -218,6 +223,11 @@ namespace IKVM.Reflection
 			return null;
 		}
 
+		internal override Type FindTypeIgnoreCase(TypeName lowerCaseName)
+		{
+			return null;
+		}
+
 		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
 		{
 			throw new MissingAssemblyException(this);
@@ -269,6 +279,11 @@ namespace IKVM.Reflection
 			return null;
 		}
 
+		internal override Type FindTypeIgnoreCase(TypeName lowerCaseName)
+		{
+			return null;
+		}
+
 		internal override void GetTypesImpl(System.Collections.Generic.List<Type> list)
 		{
 			throw new MissingModuleException(this);
@@ -312,11 +327,6 @@ namespace IKVM.Reflection
 		public override bool __IsMissing
 		{
 			get { return true; }
-		}
-
-		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-		{
-			throw new MissingModuleException(this);
 		}
 
 		protected override Exception InvalidOperationException()
@@ -373,6 +383,11 @@ namespace IKVM.Reflection
 			return null;
 		}
 
+		internal override Type FindNestedTypeIgnoreCase(TypeName lowerCaseName)
+		{
+			return null;
+		}
+
 		public override bool __IsMissing
 		{
 			get { return true; }
@@ -408,6 +423,11 @@ namespace IKVM.Reflection
 			get { return module; }
 		}
 
+		public override int MetadataToken
+		{
+			get { return token; }
+		}
+
 		public override bool IsValueType
 		{
 			get
@@ -419,7 +439,15 @@ namespace IKVM.Reflection
 					case TypeFlags.NotValueType:
 						return false;
 					default:
-						throw new MissingMemberException(this);
+						if (module.universe.ResolveMissingTypeIsValueType(this))
+						{
+							typeFlags |= TypeFlags.ValueType;
+						}
+						else
+						{
+							typeFlags |= TypeFlags.NotValueType;
+						}
+						return (typeFlags & TypeFlags.ValueType) != 0;
 				}
 			}
 		}
@@ -469,12 +497,7 @@ namespace IKVM.Reflection
 			throw new MissingMemberException(this);
 		}
 
-		public override Type[] __GetRequiredCustomModifiers()
-		{
-			throw new MissingMemberException(this);
-		}
-
-		public override Type[] __GetOptionalCustomModifiers()
+		public override CustomModifiers __GetCustomModifiers()
 		{
 			throw new MissingMemberException(this);
 		}
@@ -484,12 +507,7 @@ namespace IKVM.Reflection
 			throw new MissingMemberException(this);
 		}
 
-		public override Type[][] __GetGenericArgumentsRequiredCustomModifiers()
-		{
-			throw new MissingMemberException(this);
-		}
-
-		public override Type[][] __GetGenericArgumentsOptionalCustomModifiers()
+		public override CustomModifiers[] __GetGenericArgumentsCustomModifiers()
 		{
 			throw new MissingMemberException(this);
 		}
@@ -522,25 +540,20 @@ namespace IKVM.Reflection
 			return typeArgs[index] ?? (typeArgs[index] = new MissingTypeParameter(this, index));
 		}
 
-		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-		{
-			throw new MissingMemberException(this);
-		}
-
 		internal override Type BindTypeParameters(IGenericBinder binder)
 		{
 			return this;
-		}
-
-		internal int GetMetadataTokenForMissing()
-		{
-			return token;
 		}
 
 		internal override Type SetMetadataTokenForMissing(int token)
 		{
 			this.token = token;
 			return this;
+		}
+
+		internal override bool IsBaked
+		{
+			get { throw new MissingMemberException(this); }
 		}
 	}
 
@@ -578,6 +591,23 @@ namespace IKVM.Reflection
 		public override Type DeclaringType
 		{
 			get { return owner as Type; }
+		}
+
+		internal override Type BindTypeParameters(IGenericBinder binder)
+		{
+			if (owner is MethodBase)
+			{
+				return binder.BindMethodParameter(this);
+			}
+			else
+			{
+				return binder.BindTypeParameter(this);
+			}
+		}
+
+		internal override bool IsBaked
+		{
+			get { return owner.IsBaked; }
 		}
 	}
 
@@ -693,22 +723,16 @@ namespace IKVM.Reflection
 				get { return Forwarder.RawDefaultValue; }
 			}
 
-			public override Type[] GetOptionalCustomModifiers()
+			public override CustomModifiers __GetCustomModifiers()
 			{
-				if (index == -1)
-				{
-					return Util.Copy(method.signature.GetReturnTypeOptionalCustomModifiers(method));
-				}
-				return Util.Copy(method.signature.GetParameterOptionalCustomModifiers(method, index));
+				return index == -1
+					? method.signature.GetReturnTypeCustomModifiers(method)
+					: method.signature.GetParameterCustomModifiers(method, index);
 			}
 
-			public override Type[] GetRequiredCustomModifiers()
+			public override bool __TryGetFieldMarshal(out FieldMarshal fieldMarshal)
 			{
-				if (index == -1)
-				{
-					return Util.Copy(method.signature.GetReturnTypeRequiredCustomModifiers(method));
-				}
-				return Util.Copy(method.signature.GetParameterRequiredCustomModifiers(method, index));
+				return Forwarder.__TryGetFieldMarshal(out fieldMarshal);
 			}
 
 			public override MemberInfo Member
@@ -724,11 +748,6 @@ namespace IKVM.Reflection
 			internal override Module Module
 			{
 				get { return method.Module; }
-			}
-
-			internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-			{
-				return Forwarder.GetCustomAttributesData(attributeType);
 			}
 
 			public override string ToString()
@@ -760,6 +779,11 @@ namespace IKVM.Reflection
 		public override MethodBody GetMethodBody()
 		{
 			return Forwarder.GetMethodBody();
+		}
+
+		public override int __MethodRVA
+		{
+			get { return Forwarder.__MethodRVA; }
 		}
 
 		public override CallingConventions CallingConvention
@@ -819,11 +843,6 @@ namespace IKVM.Reflection
 		public override bool ContainsGenericParameters
 		{
 			get { return Forwarder.ContainsGenericParameters; }
-		}
-
-		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-		{
-			return Forwarder.GetCustomAttributesData(attributeType);
 		}
 
 		public override Type[] GetGenericArguments()
@@ -893,6 +912,16 @@ namespace IKVM.Reflection
 		{
 			get { return Forwarder.MetadataToken; }
 		}
+
+		internal override int GetCurrentToken()
+		{
+			return Forwarder.GetCurrentToken();
+		}
+
+		internal override bool IsBaked
+		{
+			get { return Forwarder.IsBaked; }
+		}
 	}
 
 	sealed class MissingField : FieldInfo
@@ -951,6 +980,11 @@ namespace IKVM.Reflection
 			get { return Forwarder.__FieldRVA; }
 		}
 
+		public override bool __TryGetFieldOffset(out int offset)
+		{
+			return Forwarder.__TryGetFieldOffset(out offset);
+		}
+
 		public override object GetRawConstantValue()
 		{
 			return Forwarder.GetRawConstantValue();
@@ -996,11 +1030,6 @@ namespace IKVM.Reflection
 			return new GenericFieldInstance(type, this);
 		}
 
-		internal override IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-		{
-			return Forwarder.GetCustomAttributesData(attributeType);
-		}
-
 		public override int MetadataToken
 		{
 			get { return Forwarder.MetadataToken; }
@@ -1023,6 +1052,16 @@ namespace IKVM.Reflection
 		public override string ToString()
 		{
 			return this.FieldType.Name + " " + this.Name;
+		}
+
+		internal override int GetCurrentToken()
+		{
+			return Forwarder.GetCurrentToken();
+		}
+
+		internal override bool IsBaked
+		{
+			get { return Forwarder.IsBaked; }
 		}
 	}
 
@@ -1080,6 +1119,11 @@ namespace IKVM.Reflection
 			get { throw new MissingMemberException(this); }
 		}
 
+		internal override bool IsNonPrivate
+		{
+			get { throw new MissingMemberException(this); }
+		}
+
 		internal override bool IsStatic
 		{
 			get { throw new MissingMemberException(this); }
@@ -1103,6 +1147,16 @@ namespace IKVM.Reflection
 		public override Module Module
 		{
 			get { return declaringType.Module; }
+		}
+
+		internal override bool IsBaked
+		{
+			get { return declaringType.IsBaked; }
+		}
+
+		internal override int GetCurrentToken()
+		{
+			throw new MissingMemberException(this);
 		}
 	}
 }

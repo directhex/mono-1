@@ -1,6 +1,7 @@
 /*
  * Copyright 2001-2003 Ximian, Inc
  * Copyright 2003-2010 Novell, Inc.
+ * Copyright 2011 Xamarin Inc (http://www.xamarin.com)
  * 
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -21,12 +22,13 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-enum {
-	PIN_TYPE_STACK,
-	PIN_TYPE_STATIC_DATA,
-	PIN_TYPE_OTHER,
-	PIN_TYPE_MAX
-};
+
+#include "config.h"
+#ifdef HAVE_SGEN_GC
+
+#include "metadata/sgen-gc.h"
+#include "metadata/sgen-pinning.h"
+
 
 typedef struct _PinStatAddress PinStatAddress;
 struct _PinStatAddress {
@@ -34,12 +36,6 @@ struct _PinStatAddress {
 	int pin_types;
 	PinStatAddress *left;
 	PinStatAddress *right;
-};
-
-typedef struct _ObjectList ObjectList;
-struct _ObjectList {
-	MonoObject *obj;
-	ObjectList *next;
 };
 
 typedef struct {
@@ -65,11 +61,11 @@ pin_stats_tree_free (PinStatAddress *node)
 		return;
 	pin_stats_tree_free (node->left);
 	pin_stats_tree_free (node->right);
-	mono_sgen_free_internal_dynamic (node, sizeof (PinStatAddress), INTERNAL_MEM_STATISTICS);
+	sgen_free_internal_dynamic (node, sizeof (PinStatAddress), INTERNAL_MEM_STATISTICS);
 }
 
-static void
-pin_stats_reset (void)
+void
+sgen_pin_stats_reset (void)
 {
 	int i;
 	pin_stats_tree_free (pin_stat_addresses);
@@ -78,13 +74,13 @@ pin_stats_reset (void)
 		pinned_byte_counts [i] = 0;
 	while (pinned_objects) {
 		ObjectList *next = pinned_objects->next;
-		mono_sgen_free_internal_dynamic (pinned_objects, sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
+		sgen_free_internal_dynamic (pinned_objects, sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
 		pinned_objects = next;
 	}
 }
 
-static void
-pin_stats_register_address (char *addr, int pin_type)
+void
+sgen_pin_stats_register_address (char *addr, int pin_type)
 {
 	PinStatAddress **node_ptr = &pin_stat_addresses;
 	PinStatAddress *node;
@@ -102,7 +98,7 @@ pin_stats_register_address (char *addr, int pin_type)
 			node_ptr = &node->right;
 	}
 
-	node = mono_sgen_alloc_internal_dynamic (sizeof (PinStatAddress), INTERNAL_MEM_STATISTICS);
+	node = sgen_alloc_internal_dynamic (sizeof (PinStatAddress), INTERNAL_MEM_STATISTICS);
 	node->addr = addr;
 	node->pin_types = pin_type_bit;
 	node->left = node->right = NULL;
@@ -135,13 +131,13 @@ static gpointer
 lookup_class_entry (SgenHashTable *hash_table, MonoClass *class, gpointer empty_entry)
 {
 	char *name = g_strdup_printf ("%s.%s", class->name_space, class->name);
-	gpointer entry = mono_sgen_hash_table_lookup (hash_table, name);
+	gpointer entry = sgen_hash_table_lookup (hash_table, name);
 
 	if (entry) {
 		g_free (name);
 	} else {
-		mono_sgen_hash_table_replace (hash_table, name, empty_entry);
-		entry = mono_sgen_hash_table_lookup (hash_table, name);
+		sgen_hash_table_replace (hash_table, name, empty_entry, NULL);
+		entry = sgen_hash_table_lookup (hash_table, name);
 	}
 
 	return entry;
@@ -164,38 +160,35 @@ register_class (MonoClass *class, int pin_types)
 }
 
 void
-mono_sgen_pin_stats_register_object (char *obj, size_t size)
+sgen_pin_stats_register_object (char *obj, size_t size)
 {
 	int pin_types = 0;
 	ObjectList *list;
 
-	if (!do_pin_stats)
-		return;
-
-	list = mono_sgen_alloc_internal_dynamic (sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
+	list = sgen_alloc_internal_dynamic (sizeof (ObjectList), INTERNAL_MEM_STATISTICS);
 	pin_stats_count_object_from_tree (obj, size, pin_stat_addresses, &pin_types);
 	list->obj = (MonoObject*)obj;
 	list->next = pinned_objects;
 	pinned_objects = list;
 
 	if (pin_types)
-		register_class (((MonoVTable*)LOAD_VTABLE (obj))->klass, pin_types);
+		register_class (((MonoVTable*)SGEN_LOAD_VTABLE (obj))->klass, pin_types);
 }
 
 void
-mono_sgen_pin_stats_register_global_remset (char *obj)
+sgen_pin_stats_register_global_remset (char *obj)
 {
 	GlobalRemsetClassEntry empty_entry;
 	GlobalRemsetClassEntry *entry;
 
 	memset (&empty_entry, 0, sizeof (GlobalRemsetClassEntry));
-	entry = lookup_class_entry (&global_remset_class_hash_table, ((MonoVTable*)LOAD_VTABLE (obj))->klass, &empty_entry);
+	entry = lookup_class_entry (&global_remset_class_hash_table, ((MonoVTable*)SGEN_LOAD_VTABLE (obj))->klass, &empty_entry);
 
 	++entry->num_remsets;
 }
 
 void
-mono_sgen_pin_stats_print_class_stats (void)
+sgen_pin_stats_print_class_stats (void)
 {
 	char *name;
 	PinnedClassEntry *pinned_entry;
@@ -215,3 +208,17 @@ mono_sgen_pin_stats_print_class_stats (void)
 		g_print ("%-50s  %10ld\n", name, remset_entry->num_remsets);
 	} SGEN_HASH_TABLE_FOREACH_END;
 }
+
+size_t
+sgen_pin_stats_get_pinned_byte_count (int pin_type)
+{
+	return pinned_byte_counts [pin_type];
+}
+
+ObjectList*
+sgen_pin_stats_get_object_list (void)
+{
+	return pinned_objects;
+}
+
+#endif /* HAVE_SGEN_GC */

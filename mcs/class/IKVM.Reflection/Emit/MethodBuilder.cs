@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2008-2011 Jeroen Frijters
+  Copyright (C) 2008-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -42,7 +42,7 @@ namespace IKVM.Reflection.Emit
 		private int signature;
 		private Type returnType;
 		private Type[] parameterTypes;
-		private Type[][][] modifiers;	// see PackedCustomModifiers
+		private PackedCustomModifiers customModifiers;
 		private MethodAttributes attributes;
 		private MethodImplAttributes implFlags;
 		private ILGenerator ilgen;
@@ -91,7 +91,7 @@ namespace IKVM.Reflection.Emit
 			{
 				if (this.ModuleBuilder.symbolWriter != null)
 				{
-					this.ModuleBuilder.symbolWriter.OpenMethod(new SymbolToken(-pseudoToken | 0x06000000));
+					this.ModuleBuilder.symbolWriter.OpenMethod(new SymbolToken(-pseudoToken | 0x06000000), this);
 				}
 				rva = ilgen.WriteBody(initLocals);
 				if (this.ModuleBuilder.symbolWriter != null)
@@ -301,14 +301,12 @@ namespace IKVM.Reflection.Emit
 
 		public ParameterBuilder DefineParameter(int position, ParameterAttributes attributes, string strParamName)
 		{
-			// the parameter is named "position", but it is actually a sequence number (i.e. 0 = return parameter, 1 = first parameter)
-			int sequence = position--;
 			if (parameters == null)
 			{
 				parameters = new List<ParameterBuilder>();
 			}
 			this.ModuleBuilder.Param.AddVirtualRecord();
-			ParameterBuilder pb = new ParameterBuilder(this.ModuleBuilder, sequence, attributes, strParamName);
+			ParameterBuilder pb = new ParameterBuilder(this.ModuleBuilder, position, attributes, strParamName);
 			if (parameters.Count == 0 || position > parameters[parameters.Count - 1].Position)
 			{
 				parameters.Add(pb);
@@ -327,26 +325,48 @@ namespace IKVM.Reflection.Emit
 			return pb;
 		}
 
+		private void CheckSig()
+		{
+			if (methodSignature != null)
+			{
+				throw new InvalidOperationException("The method signature can not be modified after it has been used.");
+			}
+		}
+
 		public void SetParameters(params Type[] parameterTypes)
 		{
+			CheckSig();
 			this.parameterTypes = Util.Copy(parameterTypes);
 		}
 
 		public void SetReturnType(Type returnType)
 		{
+			CheckSig();
 			this.returnType = returnType ?? this.Module.universe.System_Void;
 		}
 
 		public void SetSignature(Type returnType, Type[] returnTypeRequiredCustomModifiers, Type[] returnTypeOptionalCustomModifiers, Type[] parameterTypes, Type[][] parameterTypeRequiredCustomModifiers, Type[][] parameterTypeOptionalCustomModifiers)
 		{
+			SetSignature(returnType, parameterTypes, PackedCustomModifiers.CreateFromExternal(returnTypeOptionalCustomModifiers, returnTypeRequiredCustomModifiers,
+				parameterTypeOptionalCustomModifiers, parameterTypeRequiredCustomModifiers, Util.NullSafeLength(parameterTypes)));
+		}
+
+		public void __SetSignature(Type returnType, CustomModifiers returnTypeCustomModifiers, Type[] parameterTypes, CustomModifiers[] parameterTypeCustomModifiers)
+		{
+			SetSignature(returnType, parameterTypes, PackedCustomModifiers.CreateFromExternal(returnTypeCustomModifiers, parameterTypeCustomModifiers, Util.NullSafeLength(parameterTypes)));
+		}
+
+		private void SetSignature(Type returnType, Type[] parameterTypes, PackedCustomModifiers customModifiers)
+		{
+			CheckSig();
 			this.returnType = returnType ?? this.Module.universe.System_Void;
 			this.parameterTypes = Util.Copy(parameterTypes);
-			this.modifiers = PackedCustomModifiers.CreateFromExternal(returnTypeOptionalCustomModifiers, returnTypeRequiredCustomModifiers,
-				parameterTypeOptionalCustomModifiers, parameterTypeRequiredCustomModifiers, this.parameterTypes.Length);
+			this.customModifiers = customModifiers;
 		}
 
 		public GenericTypeParameterBuilder[] DefineGenericParameters(params string[] names)
 		{
+			CheckSig();
 			gtpb = new GenericTypeParameterBuilder[names.Length];
 			for (int i = 0; i < names.Length; i++)
 			{
@@ -407,6 +427,7 @@ namespace IKVM.Reflection.Emit
 		public void __SetCallingConvention(CallingConventions callingConvention)
 		{
 			this.callingConvention = callingConvention;
+			this.methodSignature = null;
 		}
 
 		public override MethodImplAttributes GetMethodImplementationFlags()
@@ -433,7 +454,8 @@ namespace IKVM.Reflection.Emit
 					{
 						foreach (ParameterBuilder pb in method.parameters)
 						{
-							if (pb.Position == parameter)
+							// ParameterBuilder.Position is 1-based
+							if (pb.Position - 1 == parameter)
 							{
 								return pb;
 							}
@@ -488,23 +510,15 @@ namespace IKVM.Reflection.Emit
 				}
 			}
 
-			private Type[] GetCustomModifiers(int optOrReq)
+			public override CustomModifiers __GetCustomModifiers()
 			{
-				if (method.modifiers == null || method.modifiers[parameter + 1] == null)
-				{
-					return Type.EmptyTypes;
-				}
-				return Util.Copy(method.modifiers[parameter + 1][optOrReq]);
+				return method.customModifiers.GetParameterCustomModifiers(parameter);
 			}
 
-			public override Type[] GetOptionalCustomModifiers()
+			public override bool __TryGetFieldMarshal(out FieldMarshal fieldMarshal)
 			{
-				return GetCustomModifiers(0);
-			}
-
-			public override Type[] GetRequiredCustomModifiers()
-			{
-				return GetCustomModifiers(1);
+				fieldMarshal = new FieldMarshal();
+				return false;
 			}
 
 			public override MemberInfo Member
@@ -592,6 +606,11 @@ namespace IKVM.Reflection.Emit
 			throw new NotSupportedException();
 		}
 
+		public override int __MethodRVA
+		{
+			get { throw new NotImplementedException(); }
+		}
+
 		public bool InitLocals
 		{
 			get { return initLocals; }
@@ -671,7 +690,7 @@ namespace IKVM.Reflection.Emit
 			{
 				if (methodSignature == null)
 				{
-					methodSignature = MethodSignature.MakeFromBuilder(returnType, parameterTypes, modifiers, callingConvention, gtpb == null ? 0 : gtpb.Length);
+					methodSignature = MethodSignature.MakeFromBuilder(returnType, parameterTypes, customModifiers, callingConvention, gtpb == null ? 0 : gtpb.Length);
 				}
 				return methodSignature;
 			}
@@ -679,23 +698,29 @@ namespace IKVM.Reflection.Emit
 
 		internal override int ImportTo(ModuleBuilder other)
 		{
-			if (typeBuilder.IsGenericTypeDefinition)
-			{
-				return other.ImportMember(TypeBuilder.GetMethod(typeBuilder, this));
-			}
-			else if (other == typeBuilder.ModuleBuilder)
-			{
-				return pseudoToken;
-			}
-			else
-			{
-				return other.ImportMethodOrField(typeBuilder, name, this.MethodSignature);
-			}
+			return other.ImportMethodOrField(typeBuilder, name, this.MethodSignature);
 		}
 
 		internal void CheckBaked()
 		{
 			typeBuilder.CheckBaked();
+		}
+
+		internal override int GetCurrentToken()
+		{
+			if (typeBuilder.ModuleBuilder.IsSaved)
+			{
+				return typeBuilder.ModuleBuilder.ResolvePseudoToken(pseudoToken);
+			}
+			else
+			{
+				return pseudoToken;
+			}
+		}
+
+		internal override bool IsBaked
+		{
+			get { return typeBuilder.IsBaked; }
 		}
 	}
 }

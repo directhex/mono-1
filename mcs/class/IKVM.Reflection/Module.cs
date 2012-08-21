@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009-2011 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -50,6 +50,11 @@ namespace IKVM.Reflection
 			get { return isManifestModule; }
 		}
 
+		public Guid ModuleVersionId
+		{
+			get { return module.ModuleVersionId; }
+		}
+
 		private void CheckManifestModule()
 		{
 			if (!IsManifestModule)
@@ -77,14 +82,14 @@ namespace IKVM.Reflection
 			}
 		}
 
-		internal Assembly ToAssembly()
+		internal AssemblyReader ToAssembly()
 		{
 			if (imported)
 			{
 				throw new InvalidOperationException();
 			}
 			imported = true;
-			return module.Assembly;
+			return (AssemblyReader)module.Assembly;
 		}
 
 		internal Module ToModule(Assembly assembly)
@@ -272,14 +277,8 @@ namespace IKVM.Reflection
 			get { return IsResource() ? null : GetModuleType().TypeInitializer; }
 		}
 
-		public byte[] ResolveSignature(int metadataToken)
+		public virtual byte[] ResolveSignature(int metadataToken)
 		{
-			ModuleReader rdr = this as ModuleReader;
-			if (rdr != null)
-			{
-				ByteReader br = rdr.ResolveSignature(metadataToken);
-				return br.ReadBytes(br.Length);
-			}
 			throw new NotSupportedException();
 		}
 
@@ -298,18 +297,25 @@ namespace IKVM.Reflection
 		public abstract string FullyQualifiedName { get; }
 		public abstract string Name { get; }
 		public abstract Guid ModuleVersionId { get; }
-		public abstract Type ResolveType(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments);
 		public abstract MethodBase ResolveMethod(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments);
 		public abstract FieldInfo ResolveField(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments);
 		public abstract MemberInfo ResolveMember(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments);
 
 		public abstract string ResolveString(int metadataToken);
-		public abstract Type[] __ResolveOptionalParameterTypes(int metadataToken);
+		public abstract Type[] __ResolveOptionalParameterTypes(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments, out CustomModifiers[] customModifiers);
 		public abstract string ScopeName { get; }
 
 		internal abstract void GetTypesImpl(List<Type> list);
 
 		internal abstract Type FindType(TypeName name);
+		internal abstract Type FindTypeIgnoreCase(TypeName lowerCaseName);
+
+		[Obsolete("Please use __ResolveOptionalParameterTypes(int, Type[], Type[], out CustomModifiers[]) instead.")]
+		public Type[] __ResolveOptionalParameterTypes(int metadataToken)
+		{
+			CustomModifiers[] dummy;
+			return __ResolveOptionalParameterTypes(metadataToken, null, null, out dummy);
+		}
 
 		public Type GetType(string className)
 		{
@@ -323,10 +329,6 @@ namespace IKVM.Reflection
 
 		public Type GetType(string className, bool throwOnError, bool ignoreCase)
 		{
-			if (ignoreCase)
-			{
-				throw new NotImplementedException();
-			}
 			TypeNameParser parser = TypeNameParser.Parse(className, throwOnError);
 			if (parser.Error)
 			{
@@ -343,12 +345,15 @@ namespace IKVM.Reflection
 					return null;
 				}
 			}
-			Type type = FindType(TypeName.Split(TypeNameParser.Unescape(parser.FirstNamePart)));
+			TypeName typeName = TypeName.Split(TypeNameParser.Unescape(parser.FirstNamePart));
+			Type type = ignoreCase
+				? FindTypeIgnoreCase(typeName.ToLowerInvariant())
+				: FindType(typeName);
 			if (type == null && __IsMissing)
 			{
 				throw new MissingModuleException((MissingModule)this);
 			}
-			return parser.Expand(type, this.Assembly, throwOnError, className, false);
+			return parser.Expand(type, this.Assembly, throwOnError, className, false, ignoreCase);
 		}
 
 		public Type[] GetTypes()
@@ -380,6 +385,42 @@ namespace IKVM.Reflection
 		{
 			return ResolveType(metadataToken, null, null);
 		}
+
+		internal sealed class GenericContext : IGenericContext
+		{
+			private readonly Type[] genericTypeArguments;
+			private readonly Type[] genericMethodArguments;
+
+			internal GenericContext(Type[] genericTypeArguments, Type[] genericMethodArguments)
+			{
+				this.genericTypeArguments = genericTypeArguments;
+				this.genericMethodArguments = genericMethodArguments;
+			}
+
+			public Type GetGenericTypeArgument(int index)
+			{
+				return genericTypeArguments[index];
+			}
+
+			public Type GetGenericMethodArgument(int index)
+			{
+				return genericMethodArguments[index];
+			}
+		}
+
+		public Type ResolveType(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
+		{
+			if ((metadataToken >> 24) == TypeSpecTable.Index)
+			{
+				return ResolveType(metadataToken, new GenericContext(genericTypeArguments, genericMethodArguments));
+			}
+			else
+			{
+				return ResolveType(metadataToken, null);
+			}
+		}
+
+		internal abstract Type ResolveType(int metadataToken, IGenericContext context);
 
 		public MethodBase ResolveMethod(int metadataToken)
 		{
@@ -436,78 +477,73 @@ namespace IKVM.Reflection
 
 		protected abstract long GetImageBaseImpl();
 
-		public virtual long __StackReserve
+		public long __StackReserve
 		{
-			get { throw new NotSupportedException(); }
+			get { return GetStackReserveImpl(); }
 		}
+
+		protected abstract long GetStackReserveImpl();
+
+		public int __FileAlignment
+		{
+			get { return GetFileAlignmentImpl(); }
+		}
+
+		protected abstract int GetFileAlignmentImpl();
+
+		public DllCharacteristics __DllCharacteristics
+		{
+			get { return GetDllCharacteristicsImpl(); }
+		}
+
+		protected abstract DllCharacteristics GetDllCharacteristicsImpl();
 
 		public virtual byte[] __ModuleHash
 		{
 			get { throw new NotSupportedException(); }
 		}
 
-		public List<CustomAttributeData> __GetCustomAttributesFor(int token)
+		public virtual int __EntryPointRVA
 		{
-			return GetCustomAttributes(token, null);
+			get { throw new NotSupportedException(); }
 		}
 
-		internal Type CanonicalizeType(Type type)
+		public virtual int __EntryPointToken
 		{
-			Type canon;
-			if (!universe.canonicalizedTypes.TryGetValue(type, out canon))
+			get { throw new NotSupportedException(); }
+		}
+
+		public virtual string __ImageRuntimeVersion
+		{
+			get { throw new NotSupportedException(); }
+		}
+
+		public IEnumerable<CustomAttributeData> __EnumerateCustomAttributeTable()
+		{
+			List<CustomAttributeData> list = new List<CustomAttributeData>(CustomAttribute.RowCount);
+			for (int i = 0; i < CustomAttribute.RowCount; i++)
 			{
-				canon = type;
-				universe.canonicalizedTypes.Add(canon, canon);
+				list.Add(new CustomAttributeData(this, i));
 			}
-			return canon;
+			return list;
+		}
+
+		[Obsolete]
+		public List<CustomAttributeData> __GetCustomAttributesFor(int token)
+		{
+			return CustomAttributeData.GetCustomAttributesImpl(new List<CustomAttributeData>(), this, token, null);
 		}
 
 		internal abstract Type GetModuleType();
 
 		internal abstract ByteReader GetBlob(int blobIndex);
 
-		internal virtual IList<CustomAttributeData> GetCustomAttributesData(Type attributeType)
-		{
-			return GetCustomAttributes(0x00000001, attributeType);
-		}
-
-		internal List<CustomAttributeData> GetCustomAttributes(int metadataToken, Type attributeType)
-		{
-			List<CustomAttributeData> list = new List<CustomAttributeData>();
-			// TODO use binary search?
-			for (int i = 0; i < CustomAttribute.records.Length; i++)
-			{
-				if (CustomAttribute.records[i].Parent == metadataToken)
-				{
-					if (attributeType == null)
-					{
-						list.Add(new CustomAttributeData(this, i));
-					}
-					else
-					{
-						ConstructorInfo constructor = (ConstructorInfo)ResolveMethod(CustomAttribute.records[i].Type);
-						if (attributeType.IsAssignableFrom(constructor.DeclaringType))
-						{
-							list.Add(new CustomAttributeData(this.Assembly, constructor, GetBlob(CustomAttribute.records[i].Value)));
-						}
-					}
-				}
-			}
-			return list;
-		}
-
 		internal IList<CustomAttributeData> GetDeclarativeSecurity(int metadataToken)
 		{
 			List<CustomAttributeData> list = new List<CustomAttributeData>();
-			// TODO use binary search?
-			for (int i = 0; i < DeclSecurity.records.Length; i++)
+			foreach (int i in DeclSecurity.Filter(metadataToken))
 			{
-				if (DeclSecurity.records[i].Parent == metadataToken)
-				{
-					int action = DeclSecurity.records[i].Action;
-					int permissionSet = DeclSecurity.records[i].PermissionSet;
-					CustomAttributeData.ReadDeclarativeSecurity(this.Assembly, list, action, GetBlob(permissionSet));
-				}
+				CustomAttributeData.ReadDeclarativeSecurity(this, i, list);
 			}
 			return list;
 		}
@@ -518,6 +554,11 @@ namespace IKVM.Reflection
 
 		internal virtual void ExportTypes(int fileToken, IKVM.Reflection.Emit.ModuleBuilder manifestModule)
 		{
+		}
+
+		internal virtual string GetString(int index)
+		{
+			throw new NotSupportedException();
 		}
 	}
 
@@ -578,7 +619,22 @@ namespace IKVM.Reflection
 			throw NotSupportedException();
 		}
 
-		public sealed override Type ResolveType(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
+		protected sealed override long GetStackReserveImpl()
+		{
+			throw NotSupportedException();
+		}
+
+		protected sealed override int GetFileAlignmentImpl()
+		{
+			throw NotSupportedException();
+		}
+
+		protected override DllCharacteristics GetDllCharacteristicsImpl()
+		{
+			throw NotSupportedException();
+		}
+
+		internal sealed override Type ResolveType(int metadataToken, IGenericContext context)
 		{
 			throw ArgumentOutOfRangeException();
 		}
@@ -603,7 +659,7 @@ namespace IKVM.Reflection
 			throw ArgumentOutOfRangeException();
 		}
 
-		public sealed override Type[] __ResolveOptionalParameterTypes(int metadataToken)
+		public sealed override Type[] __ResolveOptionalParameterTypes(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments, out CustomModifiers[] customModifiers)
 		{
 			throw ArgumentOutOfRangeException();
 		}

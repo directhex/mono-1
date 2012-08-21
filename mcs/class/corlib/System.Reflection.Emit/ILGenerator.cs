@@ -187,6 +187,7 @@ namespace System.Reflection.Emit {
 	[ComVisible (true)]
 	[ComDefaultInterface (typeof (_ILGenerator))]
 	[ClassInterface (ClassInterfaceType.None)]
+	[StructLayout (LayoutKind.Sequential)]
 	public class ILGenerator: _ILGenerator {
 		private struct LabelFixup {
 			public int offset;    // The number of bytes between pos and the
@@ -838,7 +839,9 @@ namespace System.Reflection.Emit {
 
 		public virtual void EmitCalli (OpCode opcode, CallingConvention unmanagedCallConv, Type returnType, Type[] parameterTypes)
 		{
-			SignatureHelper helper = SignatureHelper.GetMethodSigHelper (module, 0, unmanagedCallConv, returnType, parameterTypes);
+			// GetMethodSigHelper expects a ModuleBuilder or null, and module might be
+			// a normal module when using dynamic methods.
+			SignatureHelper helper = SignatureHelper.GetMethodSigHelper (module as ModuleBuilder, 0, unmanagedCallConv, returnType, parameterTypes);
 			Emit (opcode, helper);
 		}
 
@@ -847,7 +850,7 @@ namespace System.Reflection.Emit {
 			if (optionalParameterTypes != null)
 				throw new NotImplementedException ();
 
-			SignatureHelper helper = SignatureHelper.GetMethodSigHelper (module, callingConvention, 0, returnType, parameterTypes);
+			SignatureHelper helper = SignatureHelper.GetMethodSigHelper (module as ModuleBuilder, callingConvention, 0, returnType, parameterTypes);
 			Emit (opcode, helper);
 		}
 		
@@ -949,7 +952,7 @@ namespace System.Reflection.Emit {
 				if (locals != null) {
 					foreach (LocalBuilder local in locals) {
 						if (local.Name != null && local.Name.Length > 0) {
-							SignatureHelper sighelper = SignatureHelper.GetLocalVarSigHelper (module);
+							SignatureHelper sighelper = SignatureHelper.GetLocalVarSigHelper (module as ModuleBuilder);
 							sighelper.AddArgument (local.LocalType);
 							byte[] signature = sighelper.GetSignature ();
 							symbolWriter.DefineLocalVariable (local.Name, FieldAttributes.Public, signature, SymAddressKind.ILOffset, local.position, 0, 0, local.StartOffset, local.EndOffset);
@@ -1035,7 +1038,7 @@ namespace System.Reflection.Emit {
 			return ig.code_len;
 		}	
 
-#if NET_4_0
+#if NET_4_0 || MOBILE
 		public
 #else
 		internal

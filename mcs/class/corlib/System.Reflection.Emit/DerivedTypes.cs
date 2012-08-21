@@ -44,6 +44,7 @@ namespace System.Reflection.Emit
 		ARRAY = 0x14
 	}
 
+	[StructLayout (LayoutKind.Sequential)]
 	internal abstract class DerivedType : Type
 	{
 		internal Type elementType;
@@ -57,12 +58,6 @@ namespace System.Reflection.Emit
 		}
 
 		internal abstract String FormatName (string elementName);
-
-		internal override bool IsCompilerContext {
-			get {
-				return elementType.IsCompilerContext;
-			}
-		}
 
 		public override Type GetInterface (string name, bool ignoreCase)
 		{
@@ -321,8 +316,15 @@ namespace System.Reflection.Emit
 		{
 			throw new NotSupportedException ();
 		}
+
+		internal override bool IsUserType {
+			get {
+				return elementType.IsUserType;
+			}
+		}
 	}
 
+	[StructLayout (LayoutKind.Sequential)]
 	internal class ArrayType : DerivedType
 	{
 		int rank;
@@ -361,8 +363,6 @@ namespace System.Reflection.Emit
 
 		protected override TypeAttributes GetAttributeFlagsImpl ()
 		{
-			if (IsCompilerContext)
-				return (elementType.Attributes & TypeAttributes.VisibilityMask) | TypeAttributes.Sealed | TypeAttributes.Serializable;
 			return elementType.Attributes;
 		}
 
@@ -381,7 +381,7 @@ namespace System.Reflection.Emit
 		}
 	}
 
-
+	[StructLayout (LayoutKind.Sequential)]
 	internal class ByRefType : DerivedType
 	{
 		internal ByRefType (Type elementType) : base (elementType)
@@ -430,7 +430,7 @@ namespace System.Reflection.Emit
 		}
 	}
 
-
+	[StructLayout (LayoutKind.Sequential)]
 	internal class PointerType : DerivedType
 	{
 		internal PointerType (Type elementType) : base (elementType)

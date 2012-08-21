@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2008-2010 Jeroen Frijters
+  Copyright (C) 2008-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -26,7 +26,6 @@ using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Diagnostics.SymbolStore;
 using System.Diagnostics;
-using IKVM.Reflection.Metadata;
 using IKVM.Reflection.Writer;
 
 namespace IKVM.Reflection.Emit
@@ -116,42 +115,12 @@ namespace IKVM.Reflection.Emit
 		}
 	}
 
-	sealed class MarkerType : Type
-	{
-		public override Type BaseType
-		{
-			get { throw new InvalidOperationException(); }
-		}
-
-		public override TypeAttributes Attributes
-		{
-			get { throw new InvalidOperationException(); }
-		}
-
-		public override string Name
-		{
-			get { throw new InvalidOperationException(); }
-		}
-
-		public override string FullName
-		{
-			get { throw new InvalidOperationException(); }
-		}
-
-		public override Module Module
-		{
-			get { throw new InvalidOperationException(); }
-		}
-	}
-
 	public sealed class ILGenerator
 	{
-		private static readonly Type FAULT = new MarkerType();
-		private static readonly Type FINALLY = new MarkerType();
-		private static readonly Type FILTER = new MarkerType();
 		private readonly ModuleBuilder moduleBuilder;
 		private readonly ByteBuffer code;
-		private readonly List<LocalBuilder> locals = new List<LocalBuilder>();
+		private readonly SignatureHelper locals;
+		private int localsCount;
 		private readonly List<int> tokenFixups = new List<int>();
 		private readonly List<int> labels = new List<int>();
 		private readonly List<int> labelStackHeight = new List<int>();
@@ -182,7 +151,7 @@ namespace IKVM.Reflection.Emit
 			internal int tryLength;
 			internal int handlerOffset;
 			internal int handlerLength;
-			internal Type exceptionType;	// FINALLY = finally block, FILTER = handler with filter, FAULT = fault block
+			internal Type exceptionType;	// MarkerType.Finally = finally block, MarkerType.Filter = handler with filter, MarkerType.Fault = fault block
 			internal int filterOffset;
 
 			internal ExceptionBlock(int ordinal)
@@ -244,15 +213,11 @@ namespace IKVM.Reflection.Emit
 		{
 			this.code = new ByteBuffer(initialCapacity);
 			this.moduleBuilder = moduleBuilder;
+			this.locals = SignatureHelper.GetLocalVarSigHelper(moduleBuilder);
 			if (moduleBuilder.symbolWriter != null)
 			{
 				scope = new Scope(null);
 			}
-		}
-
-		private bool IsLabelReachable(Label label)
-		{
-			return labelStackHeight[label.Index] != -1;
 		}
 
 		// non-standard API
@@ -278,7 +243,10 @@ namespace IKVM.Reflection.Emit
 			}
 		}
 
-		public int __StackHeight {
+		// non-standard API
+		// returns -1 if the current position is currently unreachable
+		public int __StackHeight
+		{
 			get { return stackHeight; }
 		}
 
@@ -306,7 +274,7 @@ namespace IKVM.Reflection.Emit
 			UpdateStack(1);
 			if (exceptionType == null)
 			{
-				if (block.exceptionType != FILTER || block.handlerOffset != 0)
+				if (block.exceptionType != MarkerType.Filter || block.handlerOffset != 0)
 				{
 					throw new ArgumentNullException("exceptionType");
 				}
@@ -331,7 +299,7 @@ namespace IKVM.Reflection.Emit
 					exceptionStack.Push(block);
 				}
 				block.exceptionType = exceptionType;
-				if (exceptionType == FILTER)
+				if (exceptionType == MarkerType.Filter)
 				{
 					block.filterOffset = code.Position;
 				}
@@ -355,17 +323,17 @@ namespace IKVM.Reflection.Emit
 
 		public void BeginExceptFilterBlock()
 		{
-			BeginCatchBlock(FILTER);
+			BeginCatchBlock(MarkerType.Filter);
 		}
 
 		public void BeginFaultBlock()
 		{
-			BeginFinallyFaultBlock(FAULT);
+			BeginFinallyFaultBlock(MarkerType.Fault);
 		}
 
 		public void BeginFinallyBlock()
 		{
-			BeginFinallyFaultBlock(FINALLY);
+			BeginFinallyFaultBlock(MarkerType.Finally);
 		}
 
 		private void BeginFinallyFaultBlock(Type type)
@@ -412,7 +380,7 @@ namespace IKVM.Reflection.Emit
 			ExceptionBlock block = exceptionStack.Pop();
 			if (exceptionBlockAssistanceMode == EBAM_COMPAT || (exceptionBlockAssistanceMode == EBAM_CLEVER && stackHeight != -1))
 			{
-				if (block.filterOffset != 0 || (block.exceptionType != FINALLY && block.exceptionType != FAULT))
+				if (block.filterOffset != 0 || (block.exceptionType != MarkerType.Finally && block.exceptionType != MarkerType.Fault))
 				{
 					Emit(OpCodes.Leave, block.labelEnd);
 				}
@@ -448,8 +416,19 @@ namespace IKVM.Reflection.Emit
 
 		public LocalBuilder DeclareLocal(Type localType, bool pinned)
 		{
-			LocalBuilder local = new LocalBuilder(localType, locals.Count, pinned);
-			locals.Add(local);
+			LocalBuilder local = new LocalBuilder(localType, localsCount++, pinned);
+			locals.AddArgument(localType, pinned);
+			if (scope != null)
+			{
+				scope.locals.Add(local);
+			}
+			return local;
+		}
+
+		public LocalBuilder __DeclareLocal(Type localType, bool pinned, CustomModifiers customModifiers)
+		{
+			LocalBuilder local = new LocalBuilder(localType, localsCount++, pinned);
+			locals.__AddArgument(localType, pinned, customModifiers);
 			if (scope != null)
 			{
 				scope.locals.Add(local);
@@ -762,7 +741,7 @@ namespace IKVM.Reflection.Emit
 		public void Emit(OpCode opc, string str)
 		{
 			Emit(opc);
-			code.Write(0x70000000 | moduleBuilder.UserStrings.Add(str));
+			code.Write(moduleBuilder.GetStringConstant(str).Token);
 		}
 
 		public void Emit(OpCode opc, Type type)
@@ -782,10 +761,15 @@ namespace IKVM.Reflection.Emit
 		{
 			Emit(opcode);
 			UpdateStack(opcode, signature.HasThis, signature.ReturnType, signature.ParameterCount);
-			code.Write(0x11000000 | moduleBuilder.StandAloneSig.FindOrAddRecord(moduleBuilder.Blobs.Add(signature.GetSignature(moduleBuilder))));
+			code.Write(moduleBuilder.GetSignatureToken(signature).Token);
 		}
 
 		public void EmitCall(OpCode opc, MethodInfo method, Type[] optionalParameterTypes)
+		{
+			__EmitCall(opc, method, optionalParameterTypes, null);
+		}
+
+		public void __EmitCall(OpCode opc, MethodInfo method, Type[] optionalParameterTypes, CustomModifiers[] customModifiers)
 		{
 			if (optionalParameterTypes == null || optionalParameterTypes.Length == 0)
 			{
@@ -795,20 +779,7 @@ namespace IKVM.Reflection.Emit
 			{
 				Emit(opc);
 				UpdateStack(opc, method.HasThis, method.ReturnType, method.ParameterCount + optionalParameterTypes.Length);
-				ByteBuffer sig = new ByteBuffer(16);
-				method.MethodSignature.WriteMethodRefSig(moduleBuilder, sig, optionalParameterTypes);
-				MemberRefTable.Record record = new MemberRefTable.Record();
-				if (method.Module == moduleBuilder)
-				{
-					record.Class = method.MetadataToken;
-				}
-				else
-				{
-					record.Class = moduleBuilder.GetTypeTokenForMemberRef(method.DeclaringType ?? method.Module.GetModuleType());
-				}
-				record.Name = moduleBuilder.Strings.Add(method.Name);
-				record.Signature = moduleBuilder.Blobs.Add(sig);
-				code.Write(0x0A000000 | moduleBuilder.MemberRef.FindOrAddRecord(record));
+				code.Write(moduleBuilder.__GetMethodToken(method, optionalParameterTypes, customModifiers).Token);
 			}
 		}
 
@@ -817,25 +788,42 @@ namespace IKVM.Reflection.Emit
 			EmitCall(opc, constructor.GetMethodInfo(), optionalParameterTypes);
 		}
 
+		public void __EmitCall(OpCode opc, ConstructorInfo constructor, Type[] optionalParameterTypes, CustomModifiers[] customModifiers)
+		{
+			__EmitCall(opc, constructor.GetMethodInfo(), optionalParameterTypes, customModifiers);
+		}
+
 		public void EmitCalli(OpCode opc, CallingConvention callingConvention, Type returnType, Type[] parameterTypes)
 		{
-			returnType = returnType ?? moduleBuilder.universe.System_Void;
-			Emit(opc);
-			UpdateStack(opc, false, returnType, parameterTypes.Length);
-			ByteBuffer sig = new ByteBuffer(16);
-			Signature.WriteStandAloneMethodSig(moduleBuilder, sig, callingConvention, returnType, parameterTypes);
-			code.Write(0x11000000 | moduleBuilder.StandAloneSig.FindOrAddRecord(moduleBuilder.Blobs.Add(sig)));
+			SignatureHelper sig = SignatureHelper.GetMethodSigHelper(moduleBuilder, callingConvention, returnType);
+			sig.AddArguments(parameterTypes, null, null);
+			Emit(opc, sig);
 		}
 
 		public void EmitCalli(OpCode opc, CallingConventions callingConvention, Type returnType, Type[] parameterTypes, Type[] optionalParameterTypes)
 		{
-			returnType = returnType ?? moduleBuilder.universe.System_Void;
-			optionalParameterTypes = optionalParameterTypes ?? Type.EmptyTypes;
+			SignatureHelper sig = SignatureHelper.GetMethodSigHelper(moduleBuilder, callingConvention, returnType);
+			sig.AddArguments(parameterTypes, null, null);
+			sig.AddSentinel();
+			sig.AddArguments(optionalParameterTypes, null, null);
+			Emit(opc, sig);
+		}
+
+		public void __EmitCalli(OpCode opc, __StandAloneMethodSig sig)
+		{
 			Emit(opc);
-			UpdateStack(opc, (callingConvention & CallingConventions.HasThis | CallingConventions.ExplicitThis) == CallingConventions.HasThis, returnType, parameterTypes.Length + optionalParameterTypes.Length);
-			ByteBuffer sig = new ByteBuffer(16);
-			Signature.WriteStandAloneMethodSig(moduleBuilder, sig, callingConvention, returnType, parameterTypes, optionalParameterTypes);
-			code.Write(0x11000000 | moduleBuilder.StandAloneSig.FindOrAddRecord(moduleBuilder.Blobs.Add(sig)));
+			if (sig.IsUnmanaged)
+			{
+				UpdateStack(opc, false, sig.ReturnType, sig.ParameterCount);
+			}
+			else
+			{
+				CallingConventions callingConvention = sig.CallingConvention;
+				UpdateStack(opc, (callingConvention & CallingConventions.HasThis | CallingConventions.ExplicitThis) == CallingConventions.HasThis, sig.ReturnType, sig.ParameterCount);
+			}
+			ByteBuffer bb = new ByteBuffer(16);
+			Signature.WriteStandAloneMethodSig(moduleBuilder, bb, sig);
+			code.Write(0x11000000 | moduleBuilder.StandAloneSig.FindOrAddRecord(moduleBuilder.Blobs.Add(bb)));
 		}
 
 		public void EmitWriteLine(string text)
@@ -934,7 +922,7 @@ namespace IKVM.Reflection.Emit
 			int localVarSigTok = 0;
 
 			int rva;
-			if (locals.Count == 0 && exceptions.Count == 0 && maxStack <= 8 && code.Length < 64 && !fatHeader)
+			if (localsCount == 0 && exceptions.Count == 0 && maxStack <= 8 && code.Length < 64 && !fatHeader)
 			{
 				rva = WriteTinyHeaderAndCode(bb);
 			}
@@ -1022,11 +1010,9 @@ namespace IKVM.Reflection.Emit
 			bb.Align(4);
 			int rva = bb.Position;
 
-			if (locals.Count != 0)
+			if (localsCount != 0)
 			{
-				ByteBuffer localVarSig = new ByteBuffer(locals.Count + 2);
-				Signature.WriteLocalVarSig(moduleBuilder, localVarSig, locals);
-				localVarSigTok = 0x11000000 | moduleBuilder.StandAloneSig.FindOrAddRecord(moduleBuilder.Blobs.Add(localVarSig));
+				localVarSigTok = moduleBuilder.GetSignatureToken(locals).Token;
 			}
 
 			const byte CorILMethod_FatFormat = 0x03;
@@ -1084,15 +1070,15 @@ namespace IKVM.Reflection.Emit
 					bb.Write((short)(dataSize >> 8));
 					foreach (ExceptionBlock block in exceptions)
 					{
-						if (block.exceptionType == FAULT)
+						if (block.exceptionType == MarkerType.Fault)
 						{
 							bb.Write((int)COR_ILEXCEPTION_CLAUSE_FAULT);
 						}
-						else if (block.exceptionType == FILTER)
+						else if (block.exceptionType == MarkerType.Filter)
 						{
 							bb.Write((int)COR_ILEXCEPTION_CLAUSE_FILTER);
 						}
-						else if (block.exceptionType == FINALLY)
+						else if (block.exceptionType == MarkerType.Finally)
 						{
 							bb.Write((int)COR_ILEXCEPTION_CLAUSE_FINALLY);
 						}
@@ -1104,7 +1090,7 @@ namespace IKVM.Reflection.Emit
 						bb.Write(block.tryLength);
 						bb.Write(block.handlerOffset);
 						bb.Write(block.handlerLength);
-						if (block.exceptionType != FAULT && block.exceptionType != FILTER && block.exceptionType != FINALLY)
+						if (block.exceptionType != MarkerType.Fault && block.exceptionType != MarkerType.Filter && block.exceptionType != MarkerType.Finally)
 						{
 							bb.Write(moduleBuilder.GetTypeTokenForMemberRef(block.exceptionType));
 						}
@@ -1121,15 +1107,15 @@ namespace IKVM.Reflection.Emit
 					bb.Write((short)0);
 					foreach (ExceptionBlock block in exceptions)
 					{
-						if (block.exceptionType == FAULT)
+						if (block.exceptionType == MarkerType.Fault)
 						{
 							bb.Write(COR_ILEXCEPTION_CLAUSE_FAULT);
 						}
-						else if (block.exceptionType == FILTER)
+						else if (block.exceptionType == MarkerType.Filter)
 						{
 							bb.Write(COR_ILEXCEPTION_CLAUSE_FILTER);
 						}
-						else if (block.exceptionType == FINALLY)
+						else if (block.exceptionType == MarkerType.Finally)
 						{
 							bb.Write(COR_ILEXCEPTION_CLAUSE_FINALLY);
 						}
@@ -1141,7 +1127,7 @@ namespace IKVM.Reflection.Emit
 						bb.Write((byte)block.tryLength);
 						bb.Write((short)block.handlerOffset);
 						bb.Write((byte)block.handlerLength);
-						if (block.exceptionType != FAULT && block.exceptionType != FILTER && block.exceptionType != FINALLY)
+						if (block.exceptionType != MarkerType.Fault && block.exceptionType != MarkerType.Filter && block.exceptionType != MarkerType.Finally)
 						{
 							bb.Write(moduleBuilder.GetTypeTokenForMemberRef(block.exceptionType));
 						}

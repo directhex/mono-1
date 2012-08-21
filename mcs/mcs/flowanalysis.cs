@@ -422,9 +422,9 @@ namespace Mono.CSharp
 			return Parent.CheckRethrow (loc);
 		}
 
-		public virtual bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public virtual bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
-			return Parent.AddResumePoint (stmt, out pc);
+			return Parent.AddResumePoint (stmt, current, out pc);
 		}
 
 		// returns true if we crossed an unwind-protected region (try/catch/finally, lock, using, ...)
@@ -651,9 +651,9 @@ namespace Mono.CSharp
 			this.iterator = iterator;
 		}
 
-		public override bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public override bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
-			pc = iterator.AddResumePoint (stmt);
+			pc = iterator.AddResumePoint (current);
 			return false;
 		}
 	}
@@ -673,7 +673,7 @@ namespace Mono.CSharp
 			return false;
 		}
 
-		public override bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public override bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
 			throw new InternalErrorException ("A yield in a non-iterator block");
 		}
@@ -750,16 +750,16 @@ namespace Mono.CSharp
 			return CurrentUsageVector.Next != null || Parent.CheckRethrow (loc);
 		}
 
-		public override bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public override bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
 			int errors = Report.Errors;
-			Parent.AddResumePoint (tc.IsTryCatchFinally ? stmt : tc, out pc);
+			Parent.AddResumePoint (stmt, tc.IsTryCatchFinally ? current : tc, out pc);
 			if (errors == Report.Errors) {
 				if (stmt is AwaitStatement) {
 					if (CurrentUsageVector.Next != null) {
 						Report.Error (1985, stmt.loc, "The `await' operator cannot be used in the body of a catch clause");
 					} else {
-						this.tc.AddResumePoint (stmt, pc);
+						this.tc.AddResumePoint (current, pc);
 					}
 				} else {
 					if (CurrentUsageVector.Next == null)
@@ -815,9 +815,9 @@ namespace Mono.CSharp
 			return CurrentUsageVector.Next != null || Parent.CheckRethrow (loc);
 		}
 */
-		public override bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public override bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
-			pc = async_init.AddResumePoint (stmt);
+			pc = async_init.AddResumePoint (current);
 			return true;
 		}
 
@@ -969,13 +969,13 @@ namespace Mono.CSharp
 			return false;
 		}
 
-		public override bool AddResumePoint (ResumableStatement stmt, out int pc)
+		public override bool AddResumePoint (ResumableStatement stmt, ResumableStatement current, out int pc)
 		{
 			int errors = Report.Errors;
-			Parent.AddResumePoint (this.stmt, out pc);
+			Parent.AddResumePoint (stmt, this.stmt, out pc);
 			if (errors == Report.Errors) {
 				if (finally_vector == null)
-					this.stmt.AddResumePoint (stmt, pc);
+					this.stmt.AddResumePoint (current, pc);
 				else {
 					if (stmt is AwaitStatement) {
 						Report.Error (1984, stmt.loc, "The `await' operator cannot be used in the body of a finally clause");
@@ -1213,7 +1213,6 @@ namespace Mono.CSharp
 
 		class StructInfo
 		{
-			public readonly TypeSpec Type;
 			readonly List<FieldSpec> fields;
 			public readonly TypeInfo[] StructFields;
 			public readonly int Length;
@@ -1223,14 +1222,13 @@ namespace Mono.CSharp
 			private Dictionary<string, TypeInfo> struct_field_hash;
 			private Dictionary<string, int> field_hash;
 
-			protected bool InTransit;
+			bool InTransit;
 
-			// Private constructor.  To save memory usage, we only need to create one instance
-			// of this class per struct type.
-			private StructInfo (TypeSpec type)
+			//
+			// We only need one instance per type
+			//
+			StructInfo (TypeSpec type)
 			{
-				this.Type = type;
-
 				field_type_hash.Add (type, this);
 
 				fields = MemberCache.GetAllFieldsForDefiniteAssignment (type);
@@ -1327,7 +1325,7 @@ namespace Mono.CSharp
 	// </summary>
 	public class VariableInfo {
 		readonly string Name;
-		public readonly TypeInfo TypeInfo;
+		readonly TypeInfo TypeInfo;
 
 		// <summary>
 		//   The bit offset of this variable in the flow vector.
@@ -1348,12 +1346,7 @@ namespace Mono.CSharp
 
 		VariableInfo[] sub_info;
 
-		bool is_ever_assigned;
-		public bool IsEverAssigned {
-			get { return is_ever_assigned; }
-		}
-
-		protected VariableInfo (string name, TypeSpec type, int offset)
+		VariableInfo (string name, TypeSpec type, int offset)
 		{
 			this.Name = name;
 			this.Offset = offset;
@@ -1364,7 +1357,7 @@ namespace Mono.CSharp
 			Initialize ();
 		}
 
-		protected VariableInfo (VariableInfo parent, TypeInfo type)
+		VariableInfo (VariableInfo parent, TypeInfo type)
 		{
 			this.Name = parent.Name;
 			this.TypeInfo = type;
@@ -1449,9 +1442,16 @@ namespace Mono.CSharp
 			return true;
 		}
 
+		public bool IsEverAssigned { get; set; }
+
 		public bool IsStructFieldAssigned (ResolveContext ec, string name)
 		{
 			return !ec.DoFlowAnalysis || ec.CurrentBranching.IsStructFieldAssigned (this, name);
+		}
+
+		public bool IsFullyInitialized (BlockContext bc, Location loc)
+		{
+			return TypeInfo.IsFullyInitialized (bc, this, loc);
 		}
 
 		public bool IsStructFieldAssigned (MyBitVector vector, string field_name)
@@ -1483,7 +1483,7 @@ namespace Mono.CSharp
 			else
 				vector.SetRange (Offset, Length);
 
-			is_ever_assigned = true;
+			IsEverAssigned = true;
 		}
 
 		public void SetStructFieldAssigned (MyBitVector vector, string field_name)
@@ -1498,17 +1498,17 @@ namespace Mono.CSharp
 
 			var complex_field = TypeInfo.GetStructField (field_name);
 			if (complex_field != null) {
-				vector.SetRange (complex_field.Offset, complex_field.TotalLength);
+				vector.SetRange (Offset + complex_field.Offset, complex_field.TotalLength);
 			} else {
 				vector[Offset + field_idx] = true;
 			}
 
-			is_ever_assigned = true;
+			IsEverAssigned = true;
 
 			//
 			// Each field must be assigned
 			//
-			for (int i = Offset + 1; i <= TypeInfo.Length + Offset; i++) {
+			for (int i = Offset + 1; i < TypeInfo.TotalLength + Offset; i++) {
 				if (!vector[i])
 					return;
 			}

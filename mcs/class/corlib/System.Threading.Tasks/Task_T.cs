@@ -28,7 +28,7 @@
 //
 
 #if NET_4_0 || MOBILE
-using System;
+
 using System.Runtime.CompilerServices;
 
 namespace System.Threading.Tasks
@@ -38,12 +38,8 @@ namespace System.Threading.Tasks
 	public class Task<TResult> : Task
 	{
 		static readonly TaskFactory<TResult> factory = new TaskFactory<TResult> ();
-		static readonly Action<object> emptyAction = delegate (object o) {};
 
 		TResult value;
-		Func<object, TResult> function;
-		Func<TResult> simpleFunction;
-		object state;
 		
 		[System.Diagnostics.DebuggerBrowsable (System.Diagnostics.DebuggerBrowsableState.Never)]
 		public TResult Result {
@@ -76,7 +72,8 @@ namespace System.Threading.Tasks
 			}
 		}
 		
-		public Task (Func<TResult> function) : this (function, TaskCreationOptions.None)
+		public Task (Func<TResult> function)
+			: this (function, TaskCreationOptions.None)
 		{
 			
 		}
@@ -94,16 +91,14 @@ namespace System.Threading.Tasks
 		}
 		
 		public Task (Func<TResult> function, CancellationToken cancellationToken, TaskCreationOptions creationOptions)
-			: base (emptyAction, null, cancellationToken, creationOptions)
+			: base (TaskActionInvoker.Create (function), null, cancellationToken, creationOptions)
 		{
 			if (function == null)
 				throw new ArgumentNullException ("function");
-
-			this.simpleFunction = function;
-			this.state = null;
 		}
 		
-		public Task (Func<object, TResult> function, object state) : this (function, state, TaskCreationOptions.None)
+		public Task (Func<object, TResult> function, object state)
+			: this (function, state, TaskCreationOptions.None)
 		{
 			
 		}
@@ -121,38 +116,17 @@ namespace System.Threading.Tasks
 		}
 
 		public Task (Func<object, TResult> function, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions)
-			: base (emptyAction, state, cancellationToken, creationOptions)
+			: base (TaskActionInvoker.Create (function), state, cancellationToken, creationOptions)
 		{
 			if (function == null)
 				throw new ArgumentNullException ("function");
-
-			this.function = function;
-			this.state = state;
 		}
 
-		internal Task (Func<object, TResult> function,
-		               object state,
-		               CancellationToken cancellationToken,
-		               TaskCreationOptions creationOptions,
-		               Task parent)
-			: base (emptyAction, state, cancellationToken, creationOptions, parent)
+		internal Task (TaskActionInvoker invoker, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions, Task parent, Task contAncestor = null)
+			: base (invoker, state, cancellationToken, creationOptions, parent, contAncestor)
 		{
-			this.function = function;
-			this.state = state;
 		}
-		
-		internal override void InnerInvoke ()
-		{
-			if (function != null)
-				value = function (state);
-			else if (simpleFunction != null)
-				value = simpleFunction ();
-			
-			function = null;
-			simpleFunction = null;
-			state = null;
-		}
-		
+
 		public Task ContinueWith (Action<Task<TResult>> continuationAction)
 		{
 			return ContinueWith (continuationAction, TaskContinuationOptions.None);
@@ -181,10 +155,11 @@ namespace System.Threading.Tasks
 			if (scheduler == null)
 				throw new ArgumentNullException ("scheduler");
 
-			Task t = new Task (l => continuationAction ((Task<TResult>)l),
-			                   this,
+			Task t = new Task (TaskActionInvoker.Create (continuationAction),
+			                   null,
 			                   cancellationToken,
 			                   GetCreationOptions (continuationOptions),
+			                   null,
 			                   this);
 			ContinueWithCore (t, continuationOptions, scheduler);
 			
@@ -221,14 +196,38 @@ namespace System.Threading.Tasks
 			if (scheduler == null)
 				throw new ArgumentNullException ("scheduler");
 
-			Task<TNewResult> t = new Task<TNewResult> ((o) => continuationFunction ((Task<TResult>)o),
-			                                           this,
-			                                           cancellationToken,
-			                                           GetCreationOptions (continuationOptions),
-			                                           this);
+			var t = new Task<TNewResult> (TaskActionInvoker.Create (continuationFunction),
+			                              null,
+			                              cancellationToken,
+			                              GetCreationOptions (continuationOptions),
+			                              null,
+			                              this);
 			ContinueWithCore (t, continuationOptions, scheduler);
 			
 			return t;
+		}
+
+		internal bool TrySetResult (TResult result)
+		{
+			if (IsCompleted)
+				return false;
+			
+			if (!executing.TryRelaxedSet ()) {
+				var sw = new SpinWait ();
+				while (!IsCompleted)
+					sw.SpinOnce ();
+
+				return false;
+			}
+			
+			Status = TaskStatus.Running;
+
+			this.value = result;
+			Thread.MemoryBarrier ();
+
+			Finish ();
+
+			return true;
 		}
 		
 #if NET_4_5
@@ -261,11 +260,12 @@ namespace System.Threading.Tasks
 			if (scheduler == null)
 				throw new ArgumentNullException ("scheduler");
 
-			var t = new Task (l => continuationAction (this, l),
-							   state,
-							   cancellationToken,
-							   GetCreationOptions (continuationOptions),
-							   this);
+			var t = new Task (TaskActionInvoker.Create (continuationAction),
+			                  state,
+			                  cancellationToken,
+			                  GetCreationOptions (continuationOptions),
+			                  null,
+			                  this);
 
 			ContinueWithCore (t, continuationOptions, scheduler);
 
@@ -302,11 +302,12 @@ namespace System.Threading.Tasks
 			if (scheduler == null)
 				throw new ArgumentNullException ("scheduler");
 
-			var t = new Task<TNewResult> (l => continuationFunction (this, l),
-							   state,
-							   cancellationToken,
-							   GetCreationOptions (continuationOptions),
-							   this);
+			var t = new Task<TNewResult> (TaskActionInvoker.Create (continuationFunction),
+			                              state,
+			                              cancellationToken,
+			                              GetCreationOptions (continuationOptions),
+			                              null,
+			                              this);
 
 			ContinueWithCore (t, continuationOptions, scheduler);
 

@@ -51,6 +51,28 @@ typedef void* mono_native_thread_return_t;
 
 #endif /* #ifdef HOST_WIN32 */
 
+/*
+THREAD_INFO_TYPE is a way to make the mono-threads module parametric - or sort of.
+The GC using mono-threads might extend the MonoThreadInfo struct to add its own
+data, this avoid a pointer indirection on what is on a lot of hot paths.
+
+But extending MonoThreadInfo has de disavantage that all functions here return type
+would require a cast, something like the following:
+
+typedef struct {
+	MonoThreadInfo info;
+	int stuff;
+}  MyThreadInfo;
+
+...
+((MyThreadInfo*)mono_thread_info_current ())->stuff = 1;
+
+While porting sgen to use mono-threads, the number of casts required was too much and
+code ended up looking horrible. So we use this cute little hack. The idea is that
+whomever is including this header can set the expected type to be used by functions here
+and reduce the number of casts drastically.
+
+*/
 #ifndef THREAD_INFO_TYPE
 #define THREAD_INFO_TYPE MonoThreadInfo
 #endif
@@ -86,6 +108,7 @@ typedef struct {
 	/* only needed by the posix backend */ 
 #if (defined(_POSIX_VERSION) || defined(__native_client__)) && !defined (__MACH__)
 	MonoSemType suspend_semaphore;
+	gboolean syscall_break_signal;
 #endif
 
 	/*In theory, only the posix backend needs this, but having it on mach/win32 simplifies things a lot.*/
@@ -195,6 +218,8 @@ mono_threads_unregister_current_thread (THREAD_INFO_TYPE *info) MONO_INTERNAL;
 void
 mono_thread_info_disable_new_interrupt (gboolean disable) MONO_INTERNAL;
 
+void
+mono_thread_info_abort_socket_syscall_for_close (MonoNativeThreadId tid) MONO_INTERNAL;
 
 #if !defined(HOST_WIN32)
 
@@ -207,6 +232,12 @@ int
 mono_threads_pthread_kill (THREAD_INFO_TYPE *info, int signum) MONO_INTERNAL;
 #endif
 
+#else  /* !defined(HOST_WIN32) */
+
+HANDLE
+	mono_threads_CreateThread (LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, LPTHREAD_START_ROUTINE start_routine, LPVOID arg, DWORD creation_flags, LPDWORD thread_id);
+
+
 #endif /* !defined(HOST_WIN32) */
 
 /* Plartform specific functions DON'T use them */
@@ -216,6 +247,8 @@ gboolean mono_threads_core_resume (MonoThreadInfo *info) MONO_INTERNAL;
 void mono_threads_platform_register (MonoThreadInfo *info) MONO_INTERNAL; //ok
 void mono_threads_platform_free (MonoThreadInfo *info) MONO_INTERNAL;
 void mono_threads_core_interrupt (MonoThreadInfo *info) MONO_INTERNAL;
+void mono_threads_core_abort_syscall (MonoThreadInfo *info) MONO_INTERNAL;
+gboolean mono_threads_core_needs_abort_syscall (void) MONO_INTERNAL;
 
 MonoNativeThreadId mono_native_thread_id_get (void) MONO_INTERNAL;
 

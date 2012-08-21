@@ -4,6 +4,7 @@
  * Author: Paolo Molaro <lupus@ximian.com>
  *
  * (C) 2002 Ximian, Inc.
+ * Copyright 2012 Xamarin Inc (http://www.xamarin.com)
  */
 
 #ifndef __MONO_METADATA_GC_INTERNAL_H__
@@ -155,6 +156,9 @@ typedef void (*MonoGCRootMarkFunc) (void *addr, MonoGCMarkFunc mark_func);
 
 /* Create a descriptor with a user defined marking function */
 void *mono_gc_make_root_descr_user (MonoGCRootMarkFunc marker);
+
+/* Return whenever user defined marking functions are supported */
+gboolean mono_gc_user_markers_supported (void) MONO_INTERNAL;
 
 /* desc is the result from mono_gc_make_descr*. A NULL value means
  * all the words might contain GC pointers.
@@ -321,6 +325,8 @@ void* mono_gc_get_nursery (int *shift_bits, size_t *size) MONO_INTERNAL;
 
 void mono_gc_set_current_thread_appdomain (MonoDomain *domain) MONO_INTERNAL;
 
+void mono_gc_set_skip_thread (gboolean skip) MONO_INTERNAL;
+
 /*
  * Return whenever GC is disabled
  */
@@ -370,6 +376,9 @@ BOOL APIENTRY mono_gc_dllmain (HMODULE module_handle, DWORD reason, LPVOID reser
 void mono_gc_bzero (void *dest, size_t size) MONO_INTERNAL;
 void mono_gc_memmove (void *dest, const void *src, size_t size) MONO_INTERNAL;
 
+guint mono_gc_get_vtable_bits (MonoClass *class) MONO_INTERNAL;
+
+void mono_gc_register_altstack (gpointer stack, gint32 stack_size, gpointer altstack, gint32 altstack_size) MONO_INTERNAL;
 
 #endif /* __MONO_METADATA_GC_INTERNAL_H__ */
 

@@ -198,6 +198,34 @@ namespace MonoTests.System.Threading.Tasks
 		}
 
 		[Test]
+		[Ignore ("#4550, Mono GC is lame")]
+		public void SetExceptionAndUnobservedEvent ()
+		{
+			bool notFromMainThread = false;
+			var mre = new ManualResetEvent (false);
+			int mainThreadId = Thread.CurrentThread.ManagedThreadId;
+			TaskScheduler.UnobservedTaskException += (o, args) => {
+				notFromMainThread = Thread.CurrentThread.ManagedThreadId != mainThreadId;
+				args.SetObserved ();
+				mre.Set ();
+			};
+			var inner = new ApplicationException ();
+			CreateFaultedTaskCompletionSource (inner);
+			GC.Collect ();
+			GC.WaitForPendingFinalizers ();
+
+			Assert.IsTrue (mre.WaitOne (5000), "#1");
+			Assert.IsTrue (notFromMainThread, "#2");
+		}
+
+		void CreateFaultedTaskCompletionSource (Exception inner)
+		{
+			var tcs = new TaskCompletionSource<int> ();
+			tcs.SetException (inner);
+			tcs = null;
+		}
+
+		[Test]
 		public void WaitingTest ()
 		{
 			var tcs = new TaskCompletionSource<int> ();

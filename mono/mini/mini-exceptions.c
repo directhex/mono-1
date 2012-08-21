@@ -6,7 +6,8 @@
  *   Mono Team (mono-list@lists.ximian.com)
  *
  * Copyright 2001-2003 Ximian, Inc.
- * Copyright 2003-2008 Ximian, Inc.
+ * Copyright 2003-2008 Novell, Inc.
+ * Copyright 2011 Xamarin Inc (http://www.xamarin.com).
  */
 
 #include <config.h>
@@ -432,11 +433,36 @@ get_generic_info_from_stack_frame (MonoJitInfo *ji, MonoContext *ctx)
 	if (!gi->has_this)
 		return NULL;
 
-	if (gi->this_in_reg)
-		info = (gpointer)mono_arch_context_get_int_reg (ctx, gi->this_reg);
-	else
-		info = *(gpointer*)(gpointer)((char*)mono_arch_context_get_int_reg (ctx, gi->this_reg) +
-									  gi->this_offset);
+	info = NULL;
+	/*
+	 * Search location list if available, it contains the precise location of the
+	 * argument for every pc offset, even if the method was interrupted while it was in
+	 * its prolog.
+	 */
+	if (gi->nlocs) {
+		int offset = (mgreg_t)MONO_CONTEXT_GET_IP (ctx) - (mgreg_t)ji->code_start;
+		int i;
+
+		for (i = 0; i < gi->nlocs; ++i) {
+			MonoDwarfLocListEntry *entry = &gi->locations [i];
+
+			if (offset >= entry->from && (offset < entry->to || entry->to == 0)) {
+				if (entry->is_reg)
+					info = (gpointer)mono_arch_context_get_int_reg (ctx, entry->reg);
+				else
+					info = *(gpointer*)(gpointer)((char*)mono_arch_context_get_int_reg (ctx, entry->reg) + entry->offset);
+				break;
+			}
+		}
+		g_assert (i < gi->nlocs);
+	} else {
+		if (gi->this_in_reg)
+			info = (gpointer)mono_arch_context_get_int_reg (ctx, gi->this_reg);
+		else
+			info = *(gpointer*)(gpointer)((char*)mono_arch_context_get_int_reg (ctx, gi->this_reg) +
+										  gi->this_offset);
+	}
+
 	if (mono_method_get_context (ji->method)->method_inst) {
 		return info;
 	} else if ((ji->method->flags & METHOD_ATTRIBUTE_STATIC) || ji->method->klass->valuetype) {
@@ -1170,11 +1196,34 @@ wrap_non_exception_throws (MonoMethod *m)
 #define DOES_STACK_GROWS_UP 0
 #endif
 
+#define MAX_UNMANAGED_BACKTRACE 128
+static MonoArray*
+build_native_trace (void)
+{
+/* This puppy only makes sense on mobile, IOW, ARM. */
+#if defined (HAVE_BACKTRACE_SYMBOLS) && defined (TARGET_ARM)
+	MonoArray *res;
+	void *native_trace [MAX_UNMANAGED_BACKTRACE];
+	int size = backtrace (native_trace, MAX_UNMANAGED_BACKTRACE);
+	int i;
+
+	if (!size)
+		return NULL;
+	res = mono_array_new (mono_domain_get (), mono_defaults.int_class, size);
+
+	for (i = 0; i < size; i++)
+		mono_array_set (res, gpointer, i, native_trace [i]);
+	return res;
+#else
+	return NULL;
+#endif
+}
 
 #define setup_managed_stacktrace_information() do {	\
 	if (mono_ex && !initial_trace_ips) {	\
 		trace_ips = g_list_reverse (trace_ips);	\
 		MONO_OBJECT_SETREF (mono_ex, trace_ips, glist_to_array (trace_ips, mono_defaults.int_class));	\
+		MONO_OBJECT_SETREF (mono_ex, native_trace_ips, build_native_trace ());	\
 		if (has_dynamic_methods)	\
 			/* These methods could go away anytime, so compute the stack trace now */	\
 			MONO_OBJECT_SETREF (mono_ex, stack_trace, ves_icall_System_Exception_get_trace (mono_ex));	\
@@ -1508,7 +1557,7 @@ mono_handle_exception_internal (MonoContext *ctx, gpointer obj, gboolean resume,
 		res = mono_handle_exception_internal_first_pass (&ctx_cp, obj, &first_filter_idx, &ji, non_exception);
 
 		if (!res) {
-			if (mono_break_on_exc)
+			if (mini_get_debug_options ()->break_on_exc)
 				G_BREAKPOINT ();
 			mono_debugger_agent_handle_exception (obj, ctx, NULL);
 
@@ -1911,6 +1960,8 @@ mono_setup_altstack (MonoJitTlsData *tls)
 	sa.ss_flags = SS_ONSTACK;
 #endif
 	g_assert (sigaltstack (&sa, NULL) == 0);
+
+	mono_gc_register_altstack ((char*)tls->stack_ovf_guard_base + tls->stack_ovf_guard_size, (char*)staddr + stsize - ((char*)tls->stack_ovf_guard_base + tls->stack_ovf_guard_size), tls->signal_stack, tls->signal_stack_size);
 }
 
 void
@@ -1963,7 +2014,7 @@ try_restore_stack_protection (MonoJitTlsData *jit_tls, int extra_bytes)
 	return unprotect_size == jit_tls->stack_ovf_guard_size;
 }
 
-static void
+static G_GNUC_UNUSED void
 try_more_restore (void)
 {
 	MonoJitTlsData *jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
@@ -1971,7 +2022,7 @@ try_more_restore (void)
 		jit_tls->restore_stack_prot = NULL;
 }
 
-static void
+static G_GNUC_UNUSED void
 restore_stack_protection (void)
 {
 	MonoJitTlsData *jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
@@ -2218,15 +2269,10 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 #if !defined(HOST_WIN32) && defined(HAVE_SYS_SYSCALL_H) && defined(SYS_fork)
 	if (!mini_get_debug_options ()->no_gdb_backtrace && !mono_debug_using_mono_debugger ()) {
 		/* From g_spawn_command_line_sync () in eglib */
-		int res;
-		int stdout_pipe [2] = { -1, -1 };
 		pid_t pid;
 		int status;
-		char buffer [1024];
+		pid_t crashed_pid = getpid ();
 
-		res = pipe (stdout_pipe);
-		g_assert (res != -1);
-			
 		//pid = fork ();
 		/*
 		 * glibc fork acquires some locks, so if the crash happened inside malloc/free,
@@ -2235,31 +2281,14 @@ mono_handle_native_sigsegv (int signal, void *ctx)
 		pid = mono_runtime_syscall_fork ();
 
 		if (pid == 0) {
-			close (stdout_pipe [0]);
-			dup2 (stdout_pipe [1], STDOUT_FILENO);
+			dup2 (STDERR_FILENO, STDOUT_FILENO);
 
-			for (i = getdtablesize () - 1; i >= 3; i--)
-				close (i);
-
-			if (!mono_gdb_render_native_backtraces ())
-				close (STDOUT_FILENO);
-
+			mono_gdb_render_native_backtraces (crashed_pid);
 			exit (1);
 		}
 
-		close (stdout_pipe [1]);
-
 		fprintf (stderr, "\nDebug info from gdb:\n\n");
-
-		while (1) {
-			int nread = read (stdout_pipe [0], buffer, 1024);
-
-			if (nread <= 0)
-				break;
-			write (STDERR_FILENO, buffer, nread);
-		}		
-
-		waitpid (pid, &status, WNOHANG);
+		waitpid (pid, &status, 0);
 	}
 #endif
 	/*

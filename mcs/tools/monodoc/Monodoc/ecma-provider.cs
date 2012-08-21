@@ -7,6 +7,8 @@
 //
 // (C) 2002, 2003 Ximian, Inc.
 // (C) 2003 Joshua Tauberer.
+// Copyright 2003-2011 Novell
+// Copyright 2011 Xamarin Inc
 //
 // TODO:
 //   Should cluster together constructors
@@ -24,9 +26,11 @@ using System.Xml;
 using System.Xml.XPath;
 using System.Xml.Xsl;
 using System.Text;
+using System.Linq;
 using System.Collections;
-using Monodoc.Lucene.Net.Index;
-using Monodoc.Lucene.Net.Documents;
+using System.Collections.Generic;
+using Mono.Lucene.Net.Index;
+using Mono.Lucene.Net.Documents;
 
 using Mono.Documentation;
 
@@ -133,12 +137,85 @@ public static class EcmaDoc {
 		return type;
 	}
 
+	// Lala
+	static bool IsItReallyAGenericType (string type)
+	{
+		switch (type) {
+		case "Type":
+		case "TimeZone":
+		case "TimeZoneInfo":
+		case "TimeSpan":
+		case "TypeReference":
+		case "TypeCode":
+		case "TimeZoneInfo+AdjustmentRule":
+		case "TimeZoneInfo+TransitionTime":
+			return false;
+		}
+		if (type.StartsWith ("Tuple"))
+			return false;
+		return true;
+	}
+
+	public static string ConvertFromCTSName (string ctsType)
+	{
+		if (string.IsNullOrEmpty (ctsType))
+			return string.Empty;
+
+		// Most normal type should have a namespace part and thus a point in their name
+		if (ctsType.IndexOf ('.') != -1)
+			return ctsType;
+
+		if (ctsType.EndsWith ("*"))
+			return ConvertFromCTSName(ctsType.Substring(0, ctsType.Length - 1)) + "*";
+		if (ctsType.EndsWith ("&"))
+			return ConvertFromCTSName(ctsType.Substring(0, ctsType.Length - 1)) + "&";
+		if (ctsType.EndsWith ("]")) { // Array may be multidimensional
+			var idx = ctsType.LastIndexOf ('[');
+			return ConvertFromCTSName (ctsType.Substring (0, idx)) + ctsType.Substring (idx);
+		}
+
+		// Big hack here, we tentatively try to say if a type is a generic when it starts with a upper case T
+		if ((char.IsUpper (ctsType, 0) && ctsType.Length == 1) || (ctsType[0] == 'T' && IsItReallyAGenericType (ctsType)))
+			return ctsType;
+
+		switch (ctsType) {
+		case "byte": return "System.Byte";
+		case "sbyte": return "System.SByte";
+		case "short": return "System.Int16";
+		case "int": return "System.Int32";
+		case "long": return "System.Int64";
+			
+		case "ushort": return "System.UInt16";
+		case "uint": return "System.UInt32";
+		case "ulong": return "System.UInt64";
+			
+		case "float":  return "System.Single";
+		case "double":  return "System.Double";
+		case "decimal": return "System.Decimal";
+		case "bool": return "System.Boolean";
+		case "char":    return "System.Char";
+		case "string":  return "System.String";
+			
+		case "object":  return "System.Object";
+		case "void":  return "System.Void";
+		}
+
+		// If we arrive here, the type was probably stripped of its 'System.'
+		return "System." + ctsType;
+	}
+
 	internal static string GetNamespaceFile (string dir, string ns)
 	{
 		string nsxml = Path.Combine (dir, "ns-" + ns + ".xml");
 		if (!File.Exists (nsxml))
 			nsxml = Path.Combine (dir, ns + ".xml");
 		return nsxml;
+	}
+
+	internal static string GetImageFile (string dir, string img)
+	{
+		string path = Path.Combine (dir, Path.Combine ("_images", img));
+		return File.Exists (path) ? path : null;
 	}
 
 	public static string GetCref (XmlElement member)
@@ -171,7 +248,7 @@ public static class EcmaDoc {
 	{
 		XmlNodeList parameters = member.SelectNodes ("Parameters/Parameter");
 		if (parameters.Count == 0)
-			return "";
+			return member.SelectSingleNode ("MemberType").InnerText != "Property" ? "()" : "";
 		StringBuilder args = new StringBuilder ();
 		args.Append ("(");
 		args.Append (XmlDocUtils.ToTypeName (parameters [0].Attributes ["Type"].Value, member));
@@ -366,6 +443,7 @@ public class EcmaProvider : Provider {
 		}
 		tree.HelpSource.PackXml ("mastersummary.xml", nsSummary, null);
 		AddExtensionMethods (tree);
+		AddImageFiles (hs, tree);
 	}
 
 	void AddExtensionMethods (Tree tree)
@@ -397,7 +475,23 @@ public class EcmaProvider : Provider {
 			tree.HelpSource.PackXml ("ExtensionMethods.xml", extensions, "ExtensionMethods.xml");
 		}
 	}
-	       
+
+	void AddImageFiles (HelpSource hs, Tree tree)
+	{
+		foreach (string asm in asm_dirs) {
+			string path = Path.Combine (asm, "_images");
+			if (!Directory.Exists (path))
+				return;
+
+#if NET_2_0
+			foreach (var img in Directory.GetFiles (path))
+#else
+			foreach (var img in Directory.EnumerateFiles (path))
+#endif
+				hs.PackFile (img, Path.GetFileName (img));
+		}
+	}
+      
 	Hashtable/*<string, List<TypeInfo>>*/ class_summaries = new Hashtable ();
 	Hashtable/*<string, XmlNode>*/ namespace_summaries = new Hashtable ();
 	Hashtable/*<string, XmlNode>*/ namespace_remarks = new Hashtable ();
@@ -1100,7 +1194,7 @@ public class EcmaHelpSource : HelpSource {
 
 	static string ToEscapedMemberName (string membername)
 	{
-		return ToEscapedName (membername, "``");
+		return ToEscapedName (membername, "`");
 	}
 	
 	public override string GetNodeXPath (XPathNavigator n)
@@ -1161,6 +1255,7 @@ public class EcmaHelpSource : HelpSource {
 			args.AddExtensionObject("monodoc:///extensions", ExtObject);
 			args.AddParam("show", "", "namespace");
 			args.AddParam("namespace", "", ns_name);
+			args.AddParam ("source-id", "", SourceID.ToString ());
 			string s = Htmlize(new XmlNodeReader (doc), args);
 			return BuildHtml (css_ecma_code, js_code, s); 
 
@@ -1277,6 +1372,8 @@ public class EcmaHelpSource : HelpSource {
 		XsltArgumentList args = new XsltArgumentList();
 
 		args.AddExtensionObject("monodoc:///extensions", ExtObject);
+
+		args.AddParam ("source-id", "", SourceID.ToString ());
 		
 		if (rest == "") {
 			args.AddParam("show", "", "typeoverview");
@@ -1361,6 +1458,7 @@ public class EcmaHelpSource : HelpSource {
 	{
 		XsltArgumentList args = new XsltArgumentList ();
 		args.AddExtensionObject ("monodoc:///extensions", ExtObject);
+		args.AddParam ("source-id", "", SourceID.ToString ());
 		
 		Htmlize (new XmlNodeReader (newNode), args, writer);
 	}
@@ -1534,7 +1632,7 @@ public class EcmaHelpSource : HelpSource {
 			return name.Replace("+", ".");
 		}
 
-		public string MonoImpInfo(string assemblyname, string typename, string membername, string arglist, bool strlong)
+		string MonoImpInfo(string assemblyname, string typename, string membername, string arglist, bool strlong)
 		{
 			if (quiet)
 				return "";
@@ -1544,7 +1642,7 @@ public class EcmaHelpSource : HelpSource {
 			return MonoImpInfo(assemblyname, typename, membername, a, strlong);
 		}
 
-		public string MonoImpInfo(string assemblyname, string typename, string membername, XPathNodeIterator itr, bool strlong)
+		string MonoImpInfo(string assemblyname, string typename, string membername, XPathNodeIterator itr, bool strlong)
 		{
 			if (quiet)
 				return "";
@@ -1556,7 +1654,7 @@ public class EcmaHelpSource : HelpSource {
 			return MonoImpInfo (assemblyname, typename, membername, rgs, strlong);
 		}
 		
-		public string MonoImpInfo(string assemblyname, string typename, string membername, ArrayList arglist, bool strlong)
+		string MonoImpInfo(string assemblyname, string typename, string membername, ArrayList arglist, bool strlong)
 		{
 			try {
 				Assembly assembly = null;
@@ -1619,7 +1717,7 @@ public class EcmaHelpSource : HelpSource {
 			}
 		}
 		
-		public string MonoImpInfo(System.Reflection.MemberInfo mi, string itemtype, bool strlong)
+		string MonoImpInfo(System.Reflection.MemberInfo mi, string itemtype, bool strlong)
 		{
 			if (quiet)
 				return "";
@@ -1784,9 +1882,19 @@ public class EcmaHelpSource : HelpSource {
 			return node.URL[idx+1] + ":" + full + "." + node.Caption;
 		}
 	}
+
+	public override Stream GetImage (string url)
+	{
+		if (url.Contains ("/"))
+			url = url.Substring (url.LastIndexOf ('/') + 1);
+		return GetHelpStream (url);
+	}
 				
 	//
-	// Populates the index.
+	// Populates the searchable index.
+	//
+	// The idea of this index is to capture the most common search terms, the UI for this
+	// usually updates automatically as the user types.
 	//
 	public override void PopulateIndex (IndexMaker index_maker)
 	{
@@ -1797,7 +1905,47 @@ public class EcmaHelpSource : HelpSource {
 
 				string doc_tag = GetKindFromCaption (type_node.Caption);
 				string url = "T:" + full;
-					
+
+
+				//
+				// Add MonoMac/MonoTouch [Export] attributes, those live only in classes
+				//
+				if (doc_tag == "Class" && (ns_node.Caption.StartsWith ("MonoTouch") || ns_node.Caption.StartsWith ("MonoMac"))){
+					try {
+						string rest;
+						var xdoc = GetXmlFromUrl (type_node.URL, out rest);
+						if (xdoc != null){
+							var nodesWithExports = xdoc.SelectNodes ("/Type/Members/Member[contains (Attributes/Attribute/AttributeName, 'Foundation.Export') and (MemberType='Property' or MemberType='Method' or MemberType='Constructor')]");
+							
+							foreach (XmlNode n in nodesWithExports){
+								string cref = EcmaDoc.GetCref ((XmlElement) n);
+								
+								var exports = n.SelectNodes ("Attributes/Attribute/AttributeName");
+								foreach (XmlNode exportNode in exports){
+									var inner = exportNode.InnerText;
+									int p = inner.IndexOf ("Foundation.Export(\"");
+									if (p == -1){
+										Console.WriteLine ("Not found the Export attribute in {0}", inner);
+										continue;
+									}
+									var pa = inner.IndexOf ("\"", p);
+									if (pa == -1){
+										Console.WriteLine ("Export has no target in {0}", inner);
+										continue;
+									}
+									var end = inner.IndexOf ("\"", pa+1);
+									
+									var export = end == -1 ? inner.Substring (pa+1) : inner.Substring (pa+1, end-(pa+1));
+
+									index_maker.Add (export + " selector", export, cref);
+								}
+							}
+						}
+					} catch (Exception e){
+						Console.WriteLine ("Problem processing {0} for MonoTouch/MonoMac exports\n\n{0}", e);
+					}
+				}
+
 				if (doc_tag == "Class" || doc_tag == "Structure" || doc_tag == "Interface"){
 
 					index_maker.Add (type_node.Caption, typename, url);
@@ -1919,6 +2067,63 @@ public class EcmaHelpSource : HelpSource {
 			}
 		}
 	}
+
+	IEnumerable<string> ExtractArguments (string rawArgList)
+	{
+		var sb = new System.Text.StringBuilder ();
+		int genericDepth = 0;
+		int arrayDepth = 0;
+
+		for (int i = 0; i < rawArgList.Length; i++) {
+			char c = rawArgList[i];
+
+			switch (c) {
+			case ',':
+				if (genericDepth == 0 && arrayDepth == 0) {
+					yield return sb.ToString ();
+					sb.Clear ();
+					continue;
+				}
+				break;
+			case '<':
+				genericDepth++;
+				break;
+			case '>':
+				genericDepth--;
+				break;
+			case '[':
+				arrayDepth++;
+				break;
+			case ']':
+				arrayDepth--;
+				break;
+			}
+			sb.Append (c);
+		}
+		if (sb.Length > 0)
+			yield return sb.ToString ();
+	}
+
+	// Caption is what you see on a tree node, either SomeName or SomeName(ArgList)
+	void TryCreateXPathPredicateFragment (string caption, out string name, out string argListPredicate)
+	{
+		name = argListPredicate = null;
+		int parenIdx = caption.IndexOf ('(');
+		// In case of simple name, there is no need for processing
+		if (parenIdx == -1) {
+			name = caption;
+			return;
+		}
+		name = caption.Substring (0, parenIdx);
+		// Now we create a xpath predicate which will check for all the args in the argsList
+		var rawArgList = caption.Substring (parenIdx + 1, caption.Length - parenIdx - 2); // Only take what's inside the parens
+		if (string.IsNullOrEmpty (rawArgList))
+			return;
+
+		var argList = ExtractArguments (rawArgList).Select (arg => arg.Trim ()).Select (type => EcmaDoc.ConvertFromCTSName (type));
+		argListPredicate = "and " + argList.Select (type => string.Format ("Parameters/Parameter[@Type='{0}']", type)).Aggregate ((e1, e2) => e1 + " and " + e2);
+	}
+
 	//
 	// Create list of documents for searching
 	//
@@ -1948,6 +2153,7 @@ public class EcmaHelpSource : HelpSource {
 					doc.title = type_node.Caption;
 					doc.hottext = typename;
 					doc.url = url;
+					doc.fulltitle = full;
 					
 					XmlNode node_sel = xdoc.SelectSingleNode ("/Type/Docs");
 					text  = new StringBuilder ();
@@ -1959,22 +2165,57 @@ public class EcmaHelpSource : HelpSource {
 					doc.examples = text.ToString ();
 					
 					writer.AddDocument (doc.LuceneDoc);
+					var exportParsable = doc_tag == "Class" && (ns_node.Caption.StartsWith ("MonoTouch") || ns_node.Caption.StartsWith ("MonoMac"));
 
 					//Add docs for contructors, methods, etc.
 					foreach (Node c in type_node.Nodes) { // c = Constructors || Fields || Events || Properties || Methods || Operators
 						
 						if (c.Element == "*")
 							continue;
-						int i = 1;
-						foreach (Node nc in c.Nodes) {
+						const float innerTypeBoost = 0.2f;
+
+						var ncnodes = c.Nodes.Cast<Node> ();
+						// The rationale is that we need to properly handle method overloads
+						// so for those method node which have children, flatten them
+						if (c.Caption == "Methods") {
+							ncnodes = ncnodes
+								.Where (n => n.Nodes == null || n.Nodes.Count == 0)
+								.Concat (ncnodes.Where (n => n.Nodes.Count > 0).SelectMany (n => n.Nodes.Cast<Node> ()));
+						} else if (c.Caption == "Operators") {
+							ncnodes = ncnodes
+								.Where (n => n.Caption != "Conversion")
+								.Concat (ncnodes.Where (n => n.Caption == "Conversion").SelectMany (n => n.Nodes.Cast<Node> ()));
+						}
+						foreach (Node nc in ncnodes) {
 							//xpath to the docs xml node
 							string xpath;
-							if (c.Caption == "Constructors")
-								xpath = String.Format ("/Type/Members/Member[{0}]/Docs", i++);
-							else if (c.Caption == "Operators")
-								xpath = String.Format ("/Type/Members/Member[@MemberName='op_{0}']/Docs", nc.Caption);
-							else
+							string name, argListPredicate;
+
+							switch (c.Caption) {
+							case "Constructors":
+								TryCreateXPathPredicateFragment (nc.Caption, out name, out argListPredicate);
+								xpath = String.Format ("/Type/Members/Member[@MemberName='.ctor'{0}]/Docs", argListPredicate ?? string.Empty);
+								break;
+							case "Operators":
+								// The first case are explicit and implicit conversion operators which are grouped specifically
+								if (nc.Caption.IndexOf (" to ") != -1) {
+									var convArgs = nc.Caption.Split (new[] { " to " }, StringSplitOptions.None);
+									xpath = String.Format ("/Type/Members/Member[(@MemberName='op_Explicit' or @MemberName='op_Implicit')" +
+									                       " and ReturnValue/ReturnType='{0}'" +
+									                       " and Parameters/Parameter[@Type='{1}']]/Docs",
+									                       EcmaDoc.ConvertFromCTSName (convArgs[1]), EcmaDoc.ConvertFromCTSName (convArgs[0]));
+								} else {
+									xpath = String.Format ("/Type/Members/Member[@MemberName='op_{0}']/Docs", nc.Caption);
+								}
+								break;
+							case "Methods":
+								TryCreateXPathPredicateFragment (nc.Caption, out name, out argListPredicate);
+								xpath = String.Format ("/Type/Members/Member[@MemberName='{0}'{1}]/Docs", name, argListPredicate ?? string.Empty);
+								break;
+							default:
 								xpath = String.Format ("/Type/Members/Member[@MemberName='{0}']/Docs", nc.Caption);
+								break;
+							}
 							//construct url of the form M:Array.Sort
 							string urlnc;
 							if (c.Caption == "Constructors")
@@ -1985,12 +2226,38 @@ public class EcmaHelpSource : HelpSource {
 							//create the doc
 							SearchableDocument doc_nod = new SearchableDocument ();
 							doc_nod.title = LargeName (nc);
-							//dont add the parameters to the hottext
-							int ppos = nc.Caption.IndexOf ('(');
-							if (ppos != -1)
-								doc_nod.hottext =  nc.Caption.Substring (0, ppos);
-							else
-								doc_nod.hottext = nc.Caption;
+							switch (c.Caption[0]) {
+							case 'M':
+								doc_nod.title += " Method";
+								break;
+							case 'P':
+								doc_nod.title += " Property";
+								break;
+							case 'E':
+								doc_nod.title += " Event";
+								break;
+							case 'O':
+								doc_nod.title += " Operator";
+								break;
+							case 'C':
+								doc_nod.title += " Constructor";
+								break;
+							default:
+								break;
+							}
+							doc_nod.fulltitle = string.Format ("{0}.{1}::{2}", ns_node.Caption, typename, nc.Caption);
+							// Disable constructors hottext indexing as it's often "polluting" search queries
+							// because it has the same hottext than standard types
+							if (c.Caption != "Constructors") {
+								//dont add the parameters to the hottext
+								int ppos = nc.Caption.IndexOf ('(');
+								if (ppos != -1)
+									doc_nod.hottext =  nc.Caption.Substring (0, ppos);
+								else
+									doc_nod.hottext = nc.Caption;
+							} else {
+								doc_nod.hottext = string.Empty;
+							}
 
 							doc_nod.url = urlnc;
 
@@ -2004,11 +2271,43 @@ public class EcmaHelpSource : HelpSource {
 							GetTextFromNode (xmln, text);
 							doc_nod.text = text.ToString ();
 
-							text = new StringBuilder ();
+							text.Clear ();
 							GetExamples (xmln, text);
 							doc_nod.examples = text.ToString ();
 
-							writer.AddDocument (doc_nod.LuceneDoc);
+							Document lucene_doc = doc_nod.LuceneDoc;
+							lucene_doc.SetBoost (innerTypeBoost);
+							writer.AddDocument (lucene_doc);
+
+							// MonoTouch/Monomac specific parsing of [Export] attributes
+							if (exportParsable) {
+								try {
+									var exports =
+										xdoc.SelectNodes (string.Format ("/Type/Members/Member[@MemberName='{0}']/Attributes/Attribute/AttributeName[contains(text(), 'Foundation.Export')]", nc.Caption));
+									foreach (XmlNode exportNode in exports) {
+										var inner = exportNode.InnerText;
+										var parts = inner.Split ('"');
+										if (parts.Length != 3) {
+											Console.WriteLine ("Export attribute not found or not usable in {0}", inner);
+											continue;
+										}
+										
+										var export = parts[1];
+										var export_node = new SearchableDocument ();
+										export_node.title = export + " Export";
+										export_node.fulltitle = string.Format ("{0}.{1}::{2}", ns_node.Caption, typename, export);
+										export_node.url = urlnc;
+										export_node.hottext = export + ":";
+										export_node.text = string.Empty;
+										export_node.examples = string.Empty;
+										lucene_doc = export_node.LuceneDoc;
+										lucene_doc.SetBoost (innerTypeBoost);
+										writer.AddDocument (lucene_doc);
+									}
+								} catch (Exception e){
+									Console.WriteLine ("Problem processing {0} for MonoTouch/MonoMac exports\n\n{0}", e);
+								}
+							}
 						}
 					}
 				//
@@ -2036,6 +2335,7 @@ public class EcmaHelpSource : HelpSource {
 
 					doc.title = type_node.Caption;
 					doc.hottext = xdoc.DocumentElement.Attributes["Name"].Value;
+					doc.fulltitle = full;
 					doc.url = url;
 					doc.text = text.ToString();
 					writer.AddDocument (doc.LuceneDoc);
@@ -2046,6 +2346,7 @@ public class EcmaHelpSource : HelpSource {
 					SearchableDocument doc = new SearchableDocument ();
 					doc.title = type_node.Caption;
 					doc.hottext = xdoc.DocumentElement.Attributes["Name"].Value;
+					doc.fulltitle = full;
 					doc.url = url; 
 					
 					XmlNode node_sel = xdoc.SelectSingleNode ("/Type/Docs");
@@ -2059,7 +2360,7 @@ public class EcmaHelpSource : HelpSource {
 					doc.examples = text.ToString();
 
 					writer.AddDocument (doc.LuceneDoc);
-				} 
+				}
 			}
 		}
 	}
@@ -2326,6 +2627,14 @@ public class EcmaUncompiledHelpSource : EcmaHelpSource {
 		XmlDocument doc = new XmlDocument ();
 		doc.Load (id);
 		return doc;
+	}
+
+	public virtual Stream GetImage (string url)
+	{
+		string path = EcmaDoc.GetImageFile (basedir.FullName, url);
+		if (path == null)
+			return null;
+		return File.OpenRead (path);
 	}
 	
 	class UncompiledResolver : XmlResolver {

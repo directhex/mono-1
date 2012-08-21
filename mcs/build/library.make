@@ -92,7 +92,9 @@ else
 is_boot=false
 endif
 
-csproj-local: 
+csproj-local: csproj-library csproj-test
+
+csproj-library:
 	config_file=`basename $(LIBRARY) .dll`-$(PROFILE).input; \
 	echo $(thisdir):$$config_file >> $(topdir)/../msvc/scripts/order; \
 	(echo $(is_boot); \
@@ -101,8 +103,10 @@ csproj-local:
 	echo $(LIBRARY_NAME); \
 	echo $(BUILT_SOURCES_cmdline); \
 	echo $(build_lib); \
+	echo $(FRAMEWORK_VERSION); \
 	echo $(response)) > $(topdir)/../msvc/scripts/inputs/$$config_file
 
+csproj-test:
 
 install-local: all-local
 test-local: all-local
@@ -180,6 +184,19 @@ include $(topdir)/build/tests.make
 
 ifdef HAVE_CS_TESTS
 DISTFILES += $(test_sourcefile)
+
+csproj-test:
+	config_file=`basename $(LIBRARY) .dll`-tests-$(PROFILE).input; \
+	echo $(thisdir):$$config_file >> $(topdir)/../msvc/scripts/order; \
+	(echo false; \
+	echo $(MCS);	\
+	echo $(USE_MCS_FLAGS) -r:$(the_assembly) $(TEST_MCS_FLAGS); \
+	echo $(test_lib); \
+	echo $(BUILT_SOURCES_cmdline); \
+	echo $(test_lib); \
+	echo $(FRAMEWORK_VERSION); \
+	echo $(test_response)) > $(topdir)/../msvc/scripts/inputs/$$config_file
+
 endif
 
 # make dist will collect files in .sources files from all profiles
@@ -292,10 +309,10 @@ $(makefrag) $(test_response) $(test_makefrag) $(btest_response) $(btest_makefrag
 ## Documentation stuff
 
 Q_MDOC_UP=$(if $(V),,@echo "MDOC-UP [$(PROFILE)] $(notdir $(@))";)
+# net_2_0 is needed because monodoc is only compiled in that profile
 MDOC_UP  =$(Q_MDOC_UP) \
-		MONO_PATH="$(topdir)/class/lib/net_4_0$(PLATFORM_PATH_SEPARATOR)$(topdir)/class/lib/net_2_0$(PLATFORM_PATH_SEPARATOR)$$MONO_PATH" \
-		$(RUNTIME) $(topdir)/tools/mdoc/mdoc.exe update --delete            \
-			-o Documentation/en $(the_lib)
+		MONO_PATH="$(topdir)/class/lib/$(DEFAULT_PROFILE)$(PLATFORM_PATH_SEPARATOR)$(topdir)/class/lib/net_2_0$(PLATFORM_PATH_SEPARATOR)$$MONO_PATH" $(RUNTIME) $(topdir)/tools/mdoc/mdoc.exe \
+		update --delete -o Documentation/en $(the_lib)
 
 doc-update-local: $(the_libdir)/.doc-stamp
 

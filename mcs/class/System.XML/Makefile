@@ -26,7 +26,7 @@ endif
 ifeq (2.1, $(FRAMEWORK_VERSION))
 LIB_MCS_FLAGS += -unsafe -d:AGCLR -d:NET_2_1_HACK
 endif
-TEST_MCS_FLAGS = $(LIB_MCS_FLAGS) -nowarn:0618 -nowarn:219 -nowarn:169
+TEST_MCS_FLAGS = $(LIB_MCS_FLAGS) -nowarn:0618 -nowarn:219 -nowarn:169 -r:System.Data.dll -r:System.Core.dll
 
 ifeq (2.0, $(FRAMEWORK_VERSION))
 # Happens on net_2_0_bootstrap and net_2_0 profiles
@@ -66,7 +66,7 @@ EXTRA_DISTFILES = \
 	Test/XmlFiles/76102.xml		\
 	Test/XmlFiles/79683.dtd		\
 	Test/XmlFiles/496192.xml	\
-	Test/XmlFiles/496192.xsd	\
+	Test/XmlFiles/*.xsd	\
 	$(wildcard Test/XmlFiles/xsd/*.xml) \
 	$(wildcard Test/XmlFiles/xsd/*.xsd) \
 	$(wildcard Test/XmlFiles/xsl/*.xml) \
@@ -77,14 +77,14 @@ EXTRA_DISTFILES = \
 	$(nist_dom_files:%=Test/System.Xml/nist_dom/%)
 
 System.Xml.XPath/Parser.cs: System.Xml.XPath/Parser.jay $(topdir)/jay/skeleton.cs
-	$(topdir)/jay/jay -ct < $(topdir)/jay/skeleton.cs $(CURDIR)/$< >$@
+	$(topdir)/jay/jay -ct < $(topdir)/jay/skeleton.cs $< >$@
 
 Mono.Xml.Xsl/PatternParser.jay: System.Xml.XPath/Parser.jay $(topdir)/jay/skeleton.cs
 	sed "s/\%start Expr/\%start Pattern/" $< >$@
 
 Mono.Xml.Xsl/PatternParser.cs: Mono.Xml.Xsl/PatternParser.jay $(topdir)/jay/skeleton.cs
 	echo "#define XSLT_PATTERN" > $@
-	$(topdir)/jay/jay -ct $(CURDIR)/$< < $(topdir)/jay/skeleton.cs >>$@
+	$(topdir)/jay/jay -ct $< < $(topdir)/jay/skeleton.cs >>$@
 
 Mono.Xml.Xsl/PatternTokenizer.cs: System.Xml.XPath/Tokenizer.cs
 	echo "#define XSLT_PATTERN" > $@

@@ -94,7 +94,6 @@ namespace System {
 		private static readonly string hexUpperChars = "0123456789ABCDEF";
 		private static readonly string [] Empty = new string [0];
 		private static bool isWin32 = (Path.DirectorySeparatorChar == '\\');
-
 	
 		// Fields
 		
@@ -109,6 +108,20 @@ namespace System {
 		public static readonly string UriSchemeNntp = "nntp";
 		public static readonly string UriSchemeNetPipe = "net.pipe";
 		public static readonly string UriSchemeNetTcp = "net.tcp";
+		
+		private static readonly string [] knownUriSchemes =
+		{
+			UriSchemeFile,
+			UriSchemeFtp,
+			UriSchemeGopher,
+			UriSchemeHttp,
+			UriSchemeHttps,
+			UriSchemeMailto,
+			UriSchemeNews,
+			UriSchemeNntp,
+			UriSchemeNetPipe,
+			UriSchemeNetTcp
+		};
 
 		// Constructors		
 
@@ -704,12 +717,7 @@ namespace System {
 			}
 		}
 
-#if NET_2_0
-		public
-#else
-		internal
-#endif
-		bool IsAbsoluteUri {
+		public bool IsAbsoluteUri {
 			get { return isAbsoluteUri; }
 		}
 
@@ -778,6 +786,7 @@ namespace System {
 					if (i + 1 < len && name [i + 1] == '.')
 						return false;
 					count = 0;
+					continue;
 				} else if (!Char.IsLetterOrDigit (c) && c != '-' && c != '_') {
 					return false;
 				}
@@ -843,7 +852,9 @@ namespace System {
 				string s = comparand as String;
 				if (s == null)
 					return false;
-				uri = new Uri (s);
+
+				if (!TryCreate (s, UriKind.RelativeOrAbsolute, out uri))
+					return false;
 			}
 
 			return InternalEquals (uri);
@@ -1433,6 +1444,8 @@ namespace System {
 				path = uriString;
 				return null;
 			}
+			
+			scheme = TryGetKnownUriSchemeInstance (scheme);
 
 			// from here we're practically working on uriString.Substring(startpos,endpos-startpos)
 			int startpos = pos + 1;
@@ -1639,7 +1652,17 @@ namespace System {
 
 			return null;
 		}
-
+		
+		private static string TryGetKnownUriSchemeInstance (string scheme)
+		{
+			foreach (string knownScheme in knownUriSchemes) {
+				if (knownScheme == scheme)
+					return knownScheme;
+			}
+			
+			return scheme;
+		}
+	
 		private static bool CompactEscaped (string scheme)
 		{
 			if (scheme == null || scheme.Length < 4)
@@ -1955,7 +1978,7 @@ namespace System {
 		//
 		private static bool IsPredefinedScheme (string scheme)
 		{
-			if (scheme == null && scheme.Length < 3)
+			if (scheme == null || scheme.Length < 3)
 				return false;
 			
 			char c = scheme [0];
@@ -2049,11 +2072,19 @@ namespace System {
 		//
 		static bool NeedToEscapeDataChar (char b)
 		{
+#if NET_4_0
+			// .NET 4.0 follows RFC 3986 Unreserved Characters
+			return !((b >= 'A' && b <= 'Z') ||
+				 (b >= 'a' && b <= 'z') ||
+				 (b >= '0' && b <= '9') ||
+				 b == '-' || b == '.' || b == '_' || b == '~');
+#else
 			return !((b >= 'A' && b <= 'Z') ||
 				 (b >= 'a' && b <= 'z') ||
 				 (b >= '0' && b <= '9') ||
 				 b == '_' || b == '~' || b == '!' || b == '\'' ||
 				 b == '(' || b == ')' || b == '*' || b == '-' || b == '.');
+#endif
 		}
 		
 		public static string EscapeDataString (string stringToEscape)
@@ -2062,9 +2093,9 @@ namespace System {
 				throw new ArgumentNullException ("stringToEscape");
 
 			if (stringToEscape.Length > MaxUriLength) {
-				string msg = Locale.GetText ("Uri is longer than the maximum {0} characters.");
-				throw new UriFormatException (msg);
+				throw new UriFormatException (string.Format ("Uri is longer than the maximum {0} characters.", MaxUriLength));
 			}
+
 			bool escape = false;
 			foreach (char c in stringToEscape){
 				if (NeedToEscapeDataChar (c)){
@@ -2092,11 +2123,27 @@ namespace System {
 		//
 		static bool NeedToEscapeUriChar (char b)
 		{
-			return !((b >= 'A' && b <= 'Z') ||
-				 (b >= 'a' && b <= 'z') ||
-				 (b >= '&' && b <= ';') ||
-				 b == '!' || b == '#' || b == '$' || b == '=' ||
-				 b == '?' || b == '@' || b == '_' || b == '~');
+			if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '&' && b <= ';'))
+				return false;
+
+			switch (b) {
+			case '!':
+			case '#':
+			case '$':
+			case '=':
+			case '?':
+			case '@':
+			case '_':
+			case '~':
+#if NET_4_0
+			// .NET 4.0 follows RFC 3986
+			case '[':
+			case ']':
+#endif
+				return false;
+			default:
+				return true;
+			}
 		}
 		
 		public static string EscapeUriString (string stringToEscape)
@@ -2105,8 +2152,7 @@ namespace System {
 				throw new ArgumentNullException ("stringToEscape");
 
 			if (stringToEscape.Length > MaxUriLength) {
-				string msg = Locale.GetText ("Uri is longer than the maximum {0} characters.");
-				throw new UriFormatException (msg);
+				throw new UriFormatException (string.Format ("Uri is longer than the maximum {0} characters.", MaxUriLength));
 			}
 
 			bool escape = false;

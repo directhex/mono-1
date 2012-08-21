@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -22,6 +22,8 @@
   
 */
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace IKVM.Reflection
 {
@@ -48,14 +50,19 @@ namespace IKVM.Reflection
 			get { return this.FieldSignature.FieldType; }
 		}
 
+		public CustomModifiers __GetCustomModifiers()
+		{
+			return this.FieldSignature.GetCustomModifiers();
+		}
+
 		public Type[] GetOptionalCustomModifiers()
 		{
-			return this.FieldSignature.GetOptionalCustomModifiers();
+			return __GetCustomModifiers().GetOptional();
 		}
 
 		public Type[] GetRequiredCustomModifiers()
 		{
-			return this.FieldSignature.GetRequiredCustomModifiers();
+			return __GetCustomModifiers().GetRequired();
 		}
 
 		public bool IsStatic
@@ -105,7 +112,7 @@ namespace IKVM.Reflection
 
 		public bool IsAssembly
 		{
-			get { return (Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Family; }
+			get { return (Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Assembly; }
 		}
 
 		public bool IsFamilyAndAssembly
@@ -123,11 +130,175 @@ namespace IKVM.Reflection
 			return this;
 		}
 
+		public abstract bool __TryGetFieldOffset(out int offset);
+
+		public bool __TryGetFieldMarshal(out FieldMarshal fieldMarshal)
+		{
+			return FieldMarshal.ReadFieldMarshal(this.Module, GetCurrentToken(), out fieldMarshal);
+		}
+
 		internal abstract int ImportTo(Emit.ModuleBuilder module);
 
 		internal virtual FieldInfo BindTypeParameters(Type type)
 		{
 			return new GenericFieldInstance(this.DeclaringType.BindTypeParameters(type), this);
+		}
+
+		internal sealed override bool BindingFlagsMatch(BindingFlags flags)
+		{
+			return BindingFlagsMatch(IsPublic, flags, BindingFlags.Public, BindingFlags.NonPublic)
+				&& BindingFlagsMatch(IsStatic, flags, BindingFlags.Static, BindingFlags.Instance);
+		}
+
+		internal sealed override bool BindingFlagsMatchInherited(BindingFlags flags)
+		{
+			return (Attributes & FieldAttributes.FieldAccessMask) > FieldAttributes.Private
+				&& BindingFlagsMatch(IsPublic, flags, BindingFlags.Public, BindingFlags.NonPublic)
+				&& BindingFlagsMatch(IsStatic, flags, BindingFlags.Static | BindingFlags.FlattenHierarchy, BindingFlags.Instance);
+		}
+
+		internal sealed override MemberInfo SetReflectedType(Type type)
+		{
+			return new FieldInfoWithReflectedType(type, this);
+		}
+
+		internal sealed override List<CustomAttributeData> GetPseudoCustomAttributes(Type attributeType)
+		{
+			Module module = this.Module;
+			List<CustomAttributeData> list = new List<CustomAttributeData>();
+			if (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_MarshalAsAttribute))
+			{
+				FieldMarshal spec;
+				if (__TryGetFieldMarshal(out spec))
+				{
+					list.Add(CustomAttributeData.CreateMarshalAsPseudoCustomAttribute(module, spec));
+				}
+			}
+			if (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_FieldOffsetAttribute))
+			{
+				int offset;
+				if (__TryGetFieldOffset(out offset))
+				{
+					list.Add(CustomAttributeData.CreateFieldOffsetPseudoCustomAttribute(module, offset));
+				}
+			}
+			return list;
+		}
+	}
+
+	sealed class FieldInfoWithReflectedType : FieldInfo
+	{
+		private readonly Type reflectedType;
+		private readonly FieldInfo field;
+
+		internal FieldInfoWithReflectedType(Type reflectedType, FieldInfo field)
+		{
+			Debug.Assert(reflectedType != field.DeclaringType);
+			this.reflectedType = reflectedType;
+			this.field = field;
+		}
+
+		public override FieldAttributes Attributes
+		{
+			get { return field.Attributes; }
+		}
+
+		public override void __GetDataFromRVA(byte[] data, int offset, int length)
+		{
+			field.__GetDataFromRVA(data, offset, length);
+		}
+
+		public override int __FieldRVA
+		{
+			get { return field.__FieldRVA; }
+		}
+
+		public override bool __TryGetFieldOffset(out int offset)
+		{
+			return field.__TryGetFieldOffset(out offset);
+		}
+
+		public override Object GetRawConstantValue()
+		{
+			return field.GetRawConstantValue();
+		}
+
+		internal override FieldSignature FieldSignature
+		{
+			get { return field.FieldSignature; }
+		}
+
+		public override FieldInfo __GetFieldOnTypeDefinition()
+		{
+			return field.__GetFieldOnTypeDefinition();
+		}
+
+		internal override int ImportTo(Emit.ModuleBuilder module)
+		{
+			return field.ImportTo(module);
+		}
+
+		internal override FieldInfo BindTypeParameters(Type type)
+		{
+			return field.BindTypeParameters(type);
+		}
+
+		public override bool __IsMissing
+		{
+			get { return field.__IsMissing; }
+		}
+
+		public override Type DeclaringType
+		{
+			get { return field.DeclaringType; }
+		}
+
+		public override Type ReflectedType
+		{
+			get { return reflectedType; }
+		}
+
+		public override bool Equals(object obj)
+		{
+			FieldInfoWithReflectedType other = obj as FieldInfoWithReflectedType;
+			return other != null
+				&& other.reflectedType == reflectedType
+				&& other.field == field;
+		}
+
+		public override int GetHashCode()
+		{
+			return reflectedType.GetHashCode() ^ field.GetHashCode();
+		}
+
+		public override int MetadataToken
+		{
+			get { return field.MetadataToken; }
+		}
+
+		public override Module Module
+		{
+			get { return field.Module; }
+		}
+
+		public override string Name
+		{
+			get { return field.Name; }
+		}
+
+		public override string ToString()
+		{
+			return field.ToString();
+		}
+
+		internal override int GetCurrentToken()
+		{
+			return field.GetCurrentToken();
+		}
+
+		internal override bool IsBaked
+		{
+			get { return field.IsBaked; }
 		}
 	}
 }

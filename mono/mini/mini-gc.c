@@ -123,10 +123,8 @@ typedef struct {
  * only the collection thread is active.
  */
 typedef struct {
-	MonoLMF *lmf;
-	MonoContext ctx;
-	gboolean has_context;
-	MonoJitTlsData *jit_tls;
+	MonoThreadUnwindState unwind_state;
+	MonoThreadInfo *info;
 	/* For debugging */
 	mgreg_t tid;
 	gpointer ref_to_track;
@@ -378,6 +376,11 @@ encode_frame_reg (int frame_reg)
 		return 0;
 	else if (frame_reg == ARMREG_FP)
 		return 1;
+#elif defined(TARGET_S390X)
+	if (frame_reg == S390_SP)
+		return 0;
+	else if (frame_reg == S390_FP)
+		return 1;
 #else
 	NOT_IMPLEMENTED;
 #endif
@@ -403,6 +406,11 @@ decode_frame_reg (int encoded)
 		return ARMREG_SP;
 	else if (encoded == 1)
 		return ARMREG_FP;
+#elif defined(TARGET_S390X)
+	if (encoded == 0)
+		return S390_SP;
+	else if (encoded == 1)
+		return S390_FP;
 #else
 	NOT_IMPLEMENTED;
 #endif
@@ -420,6 +428,8 @@ static int callee_saved_regs [] = { AMD64_RBP, AMD64_RBX, AMD64_R12, AMD64_R13, 
 static int callee_saved_regs [] = { X86_EBX, X86_ESI, X86_EDI };
 #elif defined(TARGET_ARM)
 static int callee_saved_regs [] = { ARMREG_V1, ARMREG_V2, ARMREG_V3, ARMREG_V4, ARMREG_V5, ARMREG_V7, ARMREG_FP };
+#elif defined(TARGET_S390X)
+static int callee_saved_regs [] = { s390_r6, s390_r7, s390_r8, s390_r9, s390_r10, s390_r11, s390_r12, s390_r13, s390_r14 };
 #endif
 
 static guint32
@@ -551,6 +561,7 @@ thread_attach_func (void)
 
 	tls = g_new0 (TlsData, 1);
 	tls->tid = GetCurrentThreadId ();
+	tls->info = mono_thread_info_current ();
 	stats.tlsdata_size += sizeof (TlsData);
 
 	return tls;
@@ -569,18 +580,35 @@ thread_suspend_func (gpointer user_data, void *sigctx)
 {
 	TlsData *tls = user_data;
 
-	if (!tls)
+	if (!tls) {
 		/* Happens during startup */
+		tls->unwind_state.valid = FALSE;
 		return;
-
-	tls->lmf = mono_get_lmf ();
-	if (sigctx) {
-		mono_arch_sigctx_to_monoctx (sigctx, &tls->ctx);
-		tls->has_context = TRUE;
-	} else {
-		tls->has_context = FALSE;
 	}
-	tls->jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
+
+	if (tls->tid != GetCurrentThreadId ()) {
+		/* Happens on osx because threads are not suspended using signals */
+		gboolean res;
+
+		g_assert (tls->info);
+		res = mono_thread_state_init_from_handle (&tls->unwind_state, (MonoNativeThreadId)tls->tid, tls->info->native_handle);
+	} else {
+		tls->unwind_state.unwind_data [MONO_UNWIND_DATA_LMF] = mono_get_lmf ();
+		if (sigctx) {
+			mono_arch_sigctx_to_monoctx (sigctx, &tls->unwind_state.ctx);
+			tls->unwind_state.valid = TRUE;
+		} else {
+			tls->unwind_state.valid = FALSE;
+		}
+		tls->unwind_state.unwind_data [MONO_UNWIND_DATA_JIT_TLS] = mono_native_tls_get_value (mono_jit_tls_id);
+		tls->unwind_state.unwind_data [MONO_UNWIND_DATA_DOMAIN] = mono_domain_get ();
+	}
+
+	if (!tls->unwind_state.unwind_data [MONO_UNWIND_DATA_DOMAIN]) {
+		/* Happens during startup */
+		tls->unwind_state.valid = FALSE;
+		return;
+	}
 }
 
 #define DEAD_REF ((gpointer)(gssize)0x2a2a2a2a2a2a2a2aULL)
@@ -637,6 +665,11 @@ get_frame_pointer (MonoContext *ctx, int frame_reg)
 			return (mgreg_t)MONO_CONTEXT_GET_SP (ctx);
 		else if (frame_reg == ARMREG_FP)
 			return (mgreg_t)MONO_CONTEXT_GET_BP (ctx);
+#elif defined(TARGET_S390X)
+		if (frame_reg == S390_SP)
+			return (mgreg_t)MONO_CONTEXT_GET_SP (ctx);
+		else if (frame_reg == S390_FP)
+			return (mgreg_t)MONO_CONTEXT_GET_BP (ctx);
 #endif
 		g_assert_not_reached ();
 		return 0;
@@ -681,7 +714,7 @@ conservative_pass (TlsData *tls, guint8 *stack_start, guint8 *stack_end)
 		return;
 	}
 
-	lmf = tls->lmf;
+	lmf = tls->unwind_state.unwind_data [MONO_UNWIND_DATA_LMF];
 	frame.domain = NULL;
 
 	/* Number of bytes scanned based on GC map data */
@@ -696,15 +729,18 @@ conservative_pass (TlsData *tls, guint8 *stack_start, guint8 *stack_end)
 	/* This is one past the last address which we have scanned */
 	stack_limit = stack_start;
 
-	if (!tls->has_context)
+	if (!tls->unwind_state.valid)
 		memset (&new_ctx, 0, sizeof (ctx));
 	else
-		memcpy (&new_ctx, &tls->ctx, sizeof (MonoContext));
+		memcpy (&new_ctx, &tls->unwind_state.ctx, sizeof (MonoContext));
 
 	memset (reg_locations, 0, sizeof (reg_locations));
 	memset (new_reg_locations, 0, sizeof (new_reg_locations));
 
 	while (TRUE) {
+		if (!tls->unwind_state.valid)
+			break;
+
 		memcpy (&ctx, &new_ctx, sizeof (ctx));
 
 		for (i = 0; i < MONO_MAX_IREGS; ++i) {
@@ -728,7 +764,7 @@ conservative_pass (TlsData *tls, guint8 *stack_start, guint8 *stack_end)
 
 		g_assert ((mgreg_t)stack_limit % SIZEOF_SLOT == 0);
 
-		res = mono_find_jit_info_ext (frame.domain ? frame.domain : mono_domain_get (), tls->jit_tls, NULL, &ctx, &new_ctx, NULL, &lmf, new_reg_locations, &frame);
+		res = mono_find_jit_info_ext (frame.domain ? frame.domain : tls->unwind_state.unwind_data [MONO_UNWIND_DATA_DOMAIN], tls->unwind_state.unwind_data [MONO_UNWIND_DATA_JIT_TLS], NULL, &ctx, &new_ctx, NULL, &lmf, new_reg_locations, &frame);
 		if (!res)
 			break;
 
@@ -1031,6 +1067,9 @@ precise_pass (TlsData *tls, guint8 *stack_start, guint8 *stack_end)
 	guint8 *frame_start;
 
 	if (!tls)
+		return;
+
+	if (!tls->unwind_state.valid)
 		return;
 
 	for (findex = 0; findex < tls->nframes; findex ++) {
@@ -1959,7 +1998,7 @@ compute_frame_size (MonoCompile *cfg)
 	/* Compute min/max offsets from the fp */
 
 	/* Locals */
-#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM)
+#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM) || defined(TARGET_S390X)
 	locals_min_offset = ALIGN_TO (cfg->locals_min_stack_offset, SIZEOF_SLOT);
 	locals_max_offset = cfg->locals_max_stack_offset;
 #else
@@ -2010,6 +2049,8 @@ compute_frame_size (MonoCompile *cfg)
 #elif defined(TARGET_X86)
 	min_offset = MIN (min_offset, - (cfg->arch.sp_fp_offset + cfg->arch.param_area_size));
 #elif defined(TARGET_ARM)
+	// FIXME:
+#elif defined(TARGET_s390X)
 	// FIXME:
 #else
 	NOT_IMPLEMENTED;

@@ -1,5 +1,3 @@
-// Compiler options: -langversion:future
-
 using System;
 using System.Threading.Tasks;
 
@@ -17,6 +15,12 @@ class A
 	{
 		throw new NotImplementedException ();
 	}
+	
+	async void CastTest ()
+	{
+		var res = (int) await async ();
+		var res2 = (Int32) await async ();
+	}
 
 	public static int Main ()
 	{
@@ -30,6 +34,20 @@ class B
 	{
 		async (async arg)
 		{
+		}
+	}
+}
+
+class C
+{
+	static void Test (bool async)
+	{
+		var a = async ? Prop : 2;
+	}
+
+	static int Prop {
+		get {
+			return 3;
 		}
 	}
 }

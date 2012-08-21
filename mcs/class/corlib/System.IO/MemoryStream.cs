@@ -56,6 +56,7 @@ namespace System.IO
 		int position;
 		int dirty_bytes;
 #if NET_4_5
+		[NonSerialized]
 		Task<int> read_task;
 #endif
 
@@ -425,6 +426,12 @@ namespace System.IO
 		}
 
 #if NET_4_5
+
+		public override Task CopyToAsync (Stream destination, int bufferSize, CancellationToken cancellationToken)
+		{
+			// TODO: Specialization but what for?
+			return base.CopyToAsync (destination, bufferSize, cancellationToken);
+		}
 
 		public override Task FlushAsync (CancellationToken cancellationToken)
 		{

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2006-2010 Novell
+ * Copyright 2011 Xamarin Inc
+ */
+
 #include <stdlib.h>
 #include <glib.h>
 #include "mono-counters.h"
@@ -139,6 +144,13 @@ dump_counter (MonoCounter *counter, FILE *outfile) {
 		      str = *(char**)counter->addr;
 	      fprintf (outfile, ENTRY_FMT "%s\n", counter->name, str);
 	      break;
+	case MONO_COUNTER_TIME_INTERVAL:
+	    if (counter->type & MONO_COUNTER_CALLBACK)
+		      int64val = ((LongFunc)counter->addr) ();
+	    else
+		      int64val = *(gint64*)counter->addr;
+	    fprintf (outfile, ENTRY_FMT "%.2f ms\n", counter->name, (double)int64val / 1000.0);
+	    break;
 	}
 }
 
@@ -182,6 +194,8 @@ mono_counters_dump (int section_mask, FILE *outfile)
 			mono_counters_dump_section (i, outfile);
 		}
 	}
+
+	fflush (outfile);
 }
 
 /**

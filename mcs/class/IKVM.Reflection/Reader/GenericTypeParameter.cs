@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -87,6 +87,59 @@ namespace IKVM.Reflection.Reader
 		{
 			get { return true; }
 		}
+
+		public sealed override bool __ContainsMissingType
+		{
+			get
+			{
+				bool freeList = false;
+				try
+				{
+					foreach (Type type in GetGenericParameterConstraints())
+					{
+						if (type.__IsMissing)
+						{
+							return true;
+						}
+						else if (type.IsConstructedGenericType || type.HasElementType || type.__IsFunctionPointer)
+						{
+							// if a constructed type contains generic parameters,
+							// it might contain this type parameter again and
+							// to prevent infinite recurssion, we keep a thread local
+							// list of type parameters we've already processed
+							if (type.ContainsGenericParameters)
+							{
+								if (containsMissingTypeHack == null)
+								{
+									freeList = true;
+									containsMissingTypeHack = new List<Type>();
+								}
+								else if (containsMissingTypeHack.Contains(this))
+								{
+									return false;
+								}
+								containsMissingTypeHack.Add(this);
+							}
+							if (type.__ContainsMissingType)
+							{
+								return true;
+							}
+						}
+					}
+					return false;
+				}
+				finally
+				{
+					if (freeList)
+					{
+						containsMissingTypeHack = null;
+					}
+				}
+			}
+		}
+
+		[ThreadStatic]
+		private static List<Type> containsMissingTypeHack;
 	}
 
 	sealed class UnboundGenericMethodParameter : TypeParameterType
@@ -141,6 +194,11 @@ namespace IKVM.Reflection.Reader
 				throw new InvalidOperationException();
 			}
 
+			internal override Type FindTypeIgnoreCase(TypeName lowerCaseName)
+			{
+				throw new InvalidOperationException();
+			}
+
 			internal override void GetTypesImpl(List<Type> list)
 			{
 				throw new InvalidOperationException();
@@ -169,7 +227,7 @@ namespace IKVM.Reflection.Reader
 
 		internal static Type Make(int position)
 		{
-			return module.CanonicalizeType(new UnboundGenericMethodParameter(position));
+			return module.universe.CanonicalizeType(new UnboundGenericMethodParameter(position));
 		}
 
 		private UnboundGenericMethodParameter(int position)
@@ -236,6 +294,11 @@ namespace IKVM.Reflection.Reader
 		internal override Type BindTypeParameters(IGenericBinder binder)
 		{
 			return binder.BindMethodParameter(this);
+		}
+
+		internal override bool IsBaked
+		{
+			get { throw new InvalidOperationException(); }
 		}
 	}
 
@@ -307,14 +370,9 @@ namespace IKVM.Reflection.Reader
 		{
 			IGenericContext context = (this.DeclaringMethod as IGenericContext) ?? this.DeclaringType;
 			List<Type> list = new List<Type>();
-			int token = this.MetadataToken;
-			// TODO use binary search
-			for (int i = 0; i < module.GenericParamConstraint.records.Length; i++)
+			foreach (int i in module.GenericParamConstraint.Filter(this.MetadataToken))
 			{
-				if (module.GenericParamConstraint.records[i].Owner == token)
-				{
-					list.Add(module.ResolveType(module.GenericParamConstraint.records[i].Constraint, context));
-				}
+				list.Add(module.ResolveType(module.GenericParamConstraint.records[i].Constraint, context));
 			}
 			return list.ToArray();
 		}
@@ -335,6 +393,11 @@ namespace IKVM.Reflection.Reader
 			{
 				return binder.BindTypeParameter(this);
 			}
+		}
+
+		internal override bool IsBaked
+		{
+			get { return true; }
 		}
 	}
 }

@@ -4,9 +4,8 @@
 // Author:
 //   Marek Safar (marek.safar@gmail.com)
 //
-
-//
 // Copyright (C) 2008, 2009 Novell, Inc (http://www.novell.com)
+// Copyright (C) 2012 Xamarin Inc (http://www.xamarin.com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -36,6 +35,8 @@ using System.Text;
 using System.Collections;
 using System.Xml;
 using System.Collections.Generic;
+using Mono.CompilerServices.SymbolWriter;
+using System.Globalization;
 
 namespace TestRunner {
 
@@ -160,13 +161,15 @@ namespace TestRunner {
 				{
 					this.Type = mi.DeclaringType.ToString ();
 					this.MethodName = mi.ToString ();
+					this.MethodAttributes = (int) mi.Attributes;
 					this.ILSize = il_size;
 				}
 
-				public MethodData (string type_name, string method_name, int il_size)
+				public MethodData (string type_name, string method_name, int method_attributes, int il_size)
 				{
 					this.Type = type_name;
 					this.MethodName = method_name;
+					this.MethodAttributes = method_attributes;
 					this.ILSize = il_size;
 				}
 
@@ -174,6 +177,7 @@ namespace TestRunner {
 				public string MethodName;
 				public int ILSize;
 				public bool Checked;
+				public int MethodAttributes;
 			}
 
 			ArrayList methods;
@@ -181,12 +185,9 @@ namespace TestRunner {
 
 			public VerificationData (string test_file)
 			{
-#if NET_2_0
 				this.test_file = test_file;
-#endif				
 			}
 
-#if NET_2_0
 			string test_file;
 
 			public static VerificationData FromFile (string name, XmlReader r)
@@ -199,10 +200,11 @@ namespace TestRunner {
 					r.Read ();
 					while (r.ReadToNextSibling ("method")) {
 						string m_name = r ["name"];
+						int method_attrs = int.Parse (r["attrs"]);
 
 						r.ReadToDescendant ("size");
 						int il_size = r.ReadElementContentAsInt ();
-						methods.Add (new MethodData (type_name, m_name, il_size));
+						methods.Add (new MethodData (type_name, m_name, method_attrs, il_size));
 						r.Read ();
 					}
 					r.Read ();
@@ -233,6 +235,8 @@ namespace TestRunner {
 
 					w.WriteStartElement ("method");
 					w.WriteAttributeString ("name", data.MethodName);
+					int v = data.MethodAttributes;
+					w.WriteAttributeString ("attrs", v.ToString ());
 					w.WriteStartElement ("size");
 					w.WriteValue (data.ILSize);
 					w.WriteEndElement ();
@@ -244,7 +248,6 @@ namespace TestRunner {
 
 				w.WriteEndElement ();
 			}
-#endif
 
 			public MethodData FindMethodData (string method_name, string declaring_type)
 			{
@@ -612,7 +615,9 @@ namespace TestRunner {
 			LoadError,
 			XmlError,
 			Success,
-			ILError
+			ILError,
+			DebugError,
+			MethodAttributesError
 		}
 
 		public PositiveChecker (ITester tester, string verif_file):
@@ -721,6 +726,13 @@ namespace TestRunner {
 
 				md.Checked = true;
 
+				if (md.MethodAttributes != (int) mi.Attributes) {
+					checker.HandleFailure (test.FileName, PositiveChecker.TestResult.MethodAttributesError,
+						string.Format ("{0} ({1} -> {2})", decl_type + ": " + m_name, md.MethodAttributes, mi.Attributes));
+				}
+
+				md.MethodAttributes = (int) mi.Attributes;
+
 				int il_size = GetILSize (mi);
 				if (md.ILSize == il_size)
 					return true;
@@ -741,11 +753,10 @@ namespace TestRunner {
 
 			static int GetILSize (MethodBase mi)
 			{
-#if NET_2_0
 				MethodBody body = mi.GetMethodBody ();
 				if (body != null)
 					return body.GetILAsByteArray ().Length;
-#endif
+
 				return 0;
 			}
 
@@ -851,7 +862,7 @@ namespace TestRunner {
 					string ref_file = filename.Replace (".cs", "-ref.xml");
 					try {
 #if !NET_2_1
-						XmlComparer.Compare (ref_file, doc_output);
+						new XmlComparer ("doc").Compare (ref_file, doc_output);
 #endif
 					} catch (Exception e) {
 						HandleFailure (filename, TestResult.XmlError, e.Message);
@@ -865,6 +876,22 @@ namespace TestRunner {
 						if (!tester.CheckILSize (pt, this, file))
 							return false;
 					}
+
+					if (filename.StartsWith ("test-debug", StringComparison.OrdinalIgnoreCase)) {
+						var mdb_file_name = file + ".mdb";
+						MonoSymbolFile mdb_file = MonoSymbolFile.ReadSymbolFile (mdb_file_name);
+						var mdb_xml_file = mdb_file_name + ".xml";
+						ConvertSymbolFileToXml (mdb_file, mdb_xml_file);
+
+						var ref_file = filename.Replace(".cs", "-ref.xml");
+						try {
+							new XmlComparer ("symbols").Compare (ref_file, mdb_xml_file);
+						} catch (Exception e) {
+							HandleFailure (filename, TestResult.DebugError, e.Message);
+							return false;
+						}
+					}
+
 				}
 			} finally {
 				if (domain != null)
@@ -873,6 +900,96 @@ namespace TestRunner {
 
 			HandleFailure (filename, TestResult.Success, null);
 			return true;
+		}
+
+		static void ConvertSymbolFileToXml (MonoSymbolFile symbolFile, string xmlFile)
+		{
+			using (XmlTextWriter writer = new XmlTextWriter (xmlFile, Encoding.UTF8)) {
+				writer.Formatting = Formatting.Indented;
+
+				writer.WriteStartDocument ();
+
+				writer.WriteStartElement ("symbols");
+
+				writer.WriteStartElement ("files");
+				foreach (var file in symbolFile.Sources) {
+					writer.WriteStartElement ("file");
+					writer.WriteAttributeString ("id", file.Index.ToString ());
+					writer.WriteAttributeString ("name", Path.GetFileName (file.FileName));
+					var checksum = file.Checksum;
+					if (checksum != null)
+						writer.WriteAttributeString ("checksum", ChecksumToString (checksum));
+
+					writer.WriteEndElement ();
+				}
+				writer.WriteEndElement ();
+
+				writer.WriteStartElement ("methods");
+				foreach (var method in symbolFile.Methods) {
+					writer.WriteStartElement ("method");
+					writer.WriteAttributeString ("token", IntToHex (method.Token));
+
+					var il_entries = method.GetLineNumberTable ();
+					writer.WriteStartElement ("sequencepoints");
+					foreach (var entry in il_entries.LineNumbers) {
+						writer.WriteStartElement ("entry");
+						writer.WriteAttributeString ("il", IntToHex (entry.Offset));
+						writer.WriteAttributeString ("row", entry.Row.ToString ());
+						writer.WriteAttributeString ("col", entry.Column.ToString ());
+						writer.WriteAttributeString ("file_ref", entry.File.ToString ());
+						writer.WriteAttributeString ("hidden", BoolToString (entry.IsHidden));
+						writer.WriteEndElement ();
+					}
+					writer.WriteEndElement ();
+
+					writer.WriteStartElement ("locals");
+					foreach (var local in method.GetLocals ()) {
+						writer.WriteStartElement ("entry");
+						writer.WriteAttributeString ("name", local.Name);
+						writer.WriteAttributeString ("il_index", local.Index.ToString ());
+						writer.WriteAttributeString ("scope_ref", local.BlockIndex.ToString ());
+						writer.WriteEndElement ();
+					}
+					writer.WriteEndElement ();
+
+					writer.WriteStartElement ("scopes");
+					foreach (var scope in method.GetCodeBlocks ()) {
+						writer.WriteStartElement ("entry");
+						writer.WriteAttributeString ("index", scope.Index.ToString ());
+						writer.WriteAttributeString ("start", IntToHex (scope.StartOffset));
+						writer.WriteAttributeString ("end", IntToHex (scope.EndOffset));
+						writer.WriteEndElement ();
+					}
+					writer.WriteEndElement ();
+
+					writer.WriteEndElement ();
+				}
+				writer.WriteEndElement ();
+
+				writer.WriteEndElement ();
+				writer.WriteEndDocument ();
+			}
+		}
+
+		static string ChecksumToString (byte[] checksum)
+		{
+			var sb = new StringBuilder (checksum.Length * 2);
+			for (int i = 0; i < checksum.Length; i++) {
+				sb.Append ("0123456789abcdef"[checksum[i] >> 4]);
+				sb.Append ("0123456789abcdef"[checksum[i] & 0x0F]);
+			}
+
+			return sb.ToString ();
+		}
+
+		static string IntToHex (int value)
+		{
+			return "0x" + value.ToString ("x", CultureInfo.InvariantCulture);
+		}
+
+		static string BoolToString (bool value)
+		{
+			return value ? "true" : "false";
 		}
 
 		protected override TestCase CreateTestCase (string filename, string [] options, string [] deps)
@@ -924,11 +1041,16 @@ namespace TestRunner {
 					LogFileLine (file, "REGRESSION (SUCCESS -> LOAD ERROR)");
 					break;
 
+				case TestResult.MethodAttributesError:
 				case TestResult.ILError:
 					if (!update_verif_file) {
 						LogFileLine (file, "IL REGRESSION: " + extra);
 					}
 					extra = null;
+					break;
+
+				case TestResult.DebugError:
+					LogFileLine (file, "REGRESSION (SUCCESS -> SYMBOL FILE ERROR)");
 					break;
 			}
 
@@ -942,11 +1064,7 @@ namespace TestRunner {
 		public override void Initialize ()
 		{
 			if (verif_file != null) {
-#if NET_2_0
 				LoadVerificationData (verif_file);
-#else
-				throw new NotSupportedException ();
-#endif
 			}
 
 			base.Initialize ();
@@ -957,22 +1075,23 @@ namespace TestRunner {
 			base.CleanUp ();
 
 			if (update_verif_file) {
-#if NET_2_0
 				UpdateVerificationData (verif_file);
-#else
-				throw new NotSupportedException ();
-#endif
 			}
 		}
 
-#if NET_2_0
 		void LoadVerificationData (string file)
 		{
+			verif_data = new Hashtable ();
+
+			if (!File.Exists (file)) {
+				LogLine ("Writing verification data to `{0}' ...", file);
+				return;
+			}
+
 			LogLine ("Loading verification data from `{0}' ...", file);
 
 			using (XmlReader r = XmlReader.Create (file)) {
 				r.ReadStartElement ("tests");
-				verif_data = new Hashtable ();
 
 				while (r.Read ()) {
 					if (r.Name != "test")
@@ -1002,7 +1121,6 @@ namespace TestRunner {
 				w.WriteEndElement ();
 			}
 		}
-#endif
 	}
 
 	class NegativeChecker: Checker
@@ -1055,11 +1173,7 @@ namespace TestRunner {
 				// Some error tests require to have different error text for different runtimes.
 				if (filtered.StartsWith ("//GMCS")) {
 					row = 1;
-#if !NET_2_0
-					return true;
-#else
 					return AnalyzeTestFile(file, ref row, line, ref compiler_options, ref dependencies);
-#endif
 				}
 
 				check_error_line = !filtered.StartsWith ("//Line:0");
@@ -1305,18 +1419,13 @@ namespace TestRunner {
 			try {
 				Console.WriteLine ("Loading " + compiler + " ...");
 				tester = new ReflectionTester (Assembly.LoadFile (compiler));
-			}
-			catch (Exception) {
-#if NET_2_1
-				throw;
-#else
+			} catch (Exception) {
 				Console.Error.WriteLine ("Switching to command line mode (compiler entry point was not found)");
 				if (!File.Exists (compiler)) {
 					Console.Error.WriteLine ("ERROR: Tested compiler was not found");
 					return 1;
 				}
 				tester = new ProcessTester (compiler);
-#endif
 			}
 
 			string mode;

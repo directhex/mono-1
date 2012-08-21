@@ -106,20 +106,6 @@ namespace IKVM.Reflection
 			return copy;
 		}
 
-		internal static Type[][] Copy(Type[][] types)
-		{
-			if (types == null || types.Length == 0)
-			{
-				return types;
-			}
-			Type[][] newArray = new Type[types.Length][];
-			for (int i = 0; i < newArray.Length; i++)
-			{
-				newArray[i] = Copy(types[i]);
-			}
-			return newArray;
-		}
-
 		internal static T[] ToArray<T, V>(List<V> list, T[] empty) where V : T
 		{
 			if (list == null || list.Count == 0)
@@ -132,6 +118,13 @@ namespace IKVM.Reflection
 				array[i] = list[i];
 			}
 			return array;
+		}
+
+		internal static T[] ToArray<T>(IEnumerable<T> values)
+		{
+			return values == null
+				? Empty<T>.Array
+				: new List<T>(values).ToArray();
 		}
 
 		// note that an empty array matches a null reference
@@ -154,62 +147,6 @@ namespace IKVM.Reflection
 				for (int i = 0; i < t1.Length; i++)
 				{
 					if (!TypeEquals(t1[i], t2[i]))
-					{
-						return false;
-					}
-				}
-				return true;
-			}
-			return false;
-		}
-
-		internal static bool ArrayEquals(Type[][] t1, Type[][] t2)
-		{
-			if (t1 == t2)
-			{
-				return true;
-			}
-			if (t1 == null)
-			{
-				return t2.Length == 0;
-			}
-			else if (t2 == null)
-			{
-				return t1.Length == 0;
-			}
-			if (t1.Length == t2.Length)
-			{
-				for (int i = 0; i < t1.Length; i++)
-				{
-					if (!ArrayEquals(t1[i], t2[i]))
-					{
-						return false;
-					}
-				}
-				return true;
-			}
-			return false;
-		}
-
-		internal static bool ArrayEquals(Type[][][] t1, Type[][][] t2)
-		{
-			if (t1 == t2)
-			{
-				return true;
-			}
-			if (t1 == null)
-			{
-				return t2.Length == 0;
-			}
-			else if (t2 == null)
-			{
-				return t1.Length == 0;
-			}
-			if (t1.Length == t2.Length)
-			{
-				for (int i = 0; i < t1.Length; i++)
-				{
-					if (!ArrayEquals(t1[i], t2[i]))
 					{
 						return false;
 					}
@@ -250,30 +187,47 @@ namespace IKVM.Reflection
 			return h;
 		}
 
-		internal static int GetHashCode(Type[][] types)
+		internal static bool ArrayEquals(CustomModifiers[] m1, CustomModifiers[] m2)
+		{
+			if (m1 == null || m2 == null)
+			{
+				return m1 == m2;
+			}
+			if (m1.Length != m2.Length)
+			{
+				return false;
+			}
+			for (int i = 0; i < m1.Length; i++)
+			{
+				if (!m1[i].Equals(m2[i]))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		internal static int GetHashCode(CustomModifiers[] mods)
 		{
 			int h = 0;
-			if (types != null)
+			if (mods != null)
 			{
-				foreach (Type[] array in types)
+				foreach (CustomModifiers mod in mods)
 				{
-					h ^= GetHashCode(array);
+					h ^= mod.GetHashCode();
 				}
 			}
 			return h;
 		}
 
-		internal static int GetHashCode(Type[][][] types)
+		internal static T NullSafeElementAt<T>(T[] array, int index)
 		{
-			int h = 0;
-			if (types != null)
-			{
-				foreach (Type[][] array in types)
-				{
-					h ^= GetHashCode(array);
-				}
-			}
-			return h;
+			return array == null ? default(T) : array[index];
+		}
+
+		internal static int NullSafeLength<T>(T[] array)
+		{
+			return array == null ? 0 : array.Length;
 		}
 	}
 

@@ -9,7 +9,7 @@ etctmp = etc
 symlinks = etc/mono/1.0/machine.config etc/mono/2.0/machine.config etc/mono/2.0/web.config etc/mono/browscap.ini etc/mono/2.0/Browsers/Compat.browser
 
 if INSTALL_4_0
-symlinks += etc/mono/4.0/machine.config etc/mono/4.0/web.config
+symlinks += etc/mono/4.0/machine.config etc/mono/4.0/web.config etc/mono/4.5/web.config etc/mono/4.5/machine.config
 endif
 
 etc/mono/2.0/machine.config: $(top_srcdir)/data/net_2_0/machine.config
@@ -18,6 +18,8 @@ etc/mono/browscap.ini: $(top_srcdir)/data/browscap.ini
 etc/mono/2.0/Browsers/Compat.browser: $(top_srcdir)/data/net_2_0/Browsers/Compat.browser
 etc/mono/4.0/machine.config: $(top_srcdir)/data/net_4_0/machine.config
 etc/mono/4.0/web.config: $(top_srcdir)/data/net_4_0/web.config
+etc/mono/4.5/machine.config: $(top_srcdir)/data/net_4_5/machine.config
+etc/mono/4.5/web.config: $(top_srcdir)/data/net_4_5/web.config
 
 $(symlinks):
 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
@@ -37,12 +39,10 @@ build_profiles = moonlight_raw
 test_profiles = moonlight_raw
 else
 
-build_profiles = net_2_0 net_3_5
-test_profiles = $(build_profiles)
+build_profiles = 
 
 if MOONLIGHT
 build_profiles += moonlight_raw
-test_profiles += moonlight_raw
 
 moon-do-moonlight-raw: Makefile $(SUPPORT_FILES)
 	cd $(mcs_topdir) && $(MAKE) NO_DIR_CHECK=1 PROFILES='moonlight_raw' CC='$(CC)' all-profiles
@@ -55,9 +55,19 @@ moon-do-clean: moon-do-moonlight-raw-clean moon-do-basic-clean
 
 endif
 
+if INSTALL_2_0
+build_profiles += net_2_0 net_3_5
+al_profile = net_2_0
+endif
+
 if INSTALL_4_0
-build_profiles += net_4_0 net_4_5
-#test_profiles += net_4_0
+build_profiles += net_4_0
+al_profile = net_4_0
+endif
+
+if INSTALL_4_5
+build_profiles += net_4_5
+al_profile = net_4_5
 endif
 
 if INSTALL_MONODROID
@@ -71,6 +81,8 @@ endif
 if INSTALL_MOBILE
 build_profiles += mobile
 endif
+
+test_profiles = $(build_profiles)
 
 endif
 
@@ -134,12 +146,12 @@ endif
 
 # Compile all assemblies with the verifier turned on. Code must be valid but not verifiable.
 # TODO it would be nice to split assemblies without unsafe code to use the verifier with verifiable mode.
-# Skip net 2.1 assemblies for now because of visibility problems
+# Skip net 4.0 assemblies because the contain metadata only
 mcs-compileall: mono-wrapper etc/mono/config
 	save_MONO_PATH=$$MONO_PATH; mcs_topdir=`cd $(mcs_topdir) && $(cur_dir_cmd)`; ok=:; \
 	for profile in $(test_profiles); do \
-	  if [ "moonlight" = "$$profile" ]; then \
-          break; \
+	  if [ "net_4_0" = "$$profile" ]; then \
+          continue; \
       fi; \
 	  if [ "net_3_5" = "$$profile" ]; then \
 		  MONO_PATH="$$mcs_topdir/class/lib/$$profile$(PLATFORM_PATH_SEPARATOR)$$mcs_topdir/class/lib/net_2_0$(PLATFORM_PATH_SEPARATOR)$$save_MONO_PATH"; \
@@ -209,7 +221,7 @@ $(tmpinst)/bin/al2: $(tmpinst)/bin/mono Makefile
 $(tmpinst)/bin/al: $(tmpinst)/bin/mono Makefile
 	echo '#! /bin/sh' > $@ ; \
 	r=`pwd`; m=`cd $(mcs_topdir) && pwd`; \
-	echo 'exec "'"$$r/$(tmpinst)/bin/mono"'" "'"$$m/class/lib/net_4_0/al.exe"'" "$$@"' >> $@ ; \
+	echo 'exec "'"$$r/$(tmpinst)/bin/mono"'" "'"$$m/class/lib/$(al_profile)/al.exe"'" "$$@"' >> $@ ; \
 	chmod +x $@
 
 test-support-files: $(TEST_SUPPORT_FILES)

@@ -1087,6 +1087,57 @@ namespace MonoTests.System.IO.IsolatedStorageTest {
 			isf.Close ();
 			isf.Dispose ();
 		}
+
+		[Test]
+		public void MultiLevel ()
+		{
+			// see bug #4101
+			IsolatedStorageFile isf = IsolatedStorageFile.GetUserStoreForAssembly ();
+			try {
+				isf.CreateDirectory ("dir1");
+				string [] dirs = isf.GetDirectoryNames ("*");
+				Assert.AreEqual (dirs.Length, 1, "1a");
+				Assert.AreEqual (dirs [0], "dir1", "1b");
+	
+				isf.CreateDirectory ("dir1/test");
+				dirs = isf.GetDirectoryNames ("dir1/*");
+				Assert.AreEqual (dirs.Length, 1, "2a");
+				Assert.AreEqual (dirs [0], "test", "2b");
+	
+				isf.CreateDirectory ("dir1/test/test2a");
+				isf.CreateDirectory ("dir1/test/test2b");
+				dirs = isf.GetDirectoryNames ("dir1/test/*");
+				Assert.AreEqual (dirs.Length, 2, "3a");
+				Assert.AreEqual (dirs [0], "test2a", "3b");
+				Assert.AreEqual (dirs [1], "test2b", "3c");
+			}
+			finally {
+				isf.DeleteDirectory ("dir1/test/test2a");
+				isf.DeleteDirectory ("dir1/test/test2b");
+				isf.DeleteDirectory ("dir1/test");
+				isf.DeleteDirectory ("dir1");
+			}
+		}
 #endif
+		[Test]
+		public void RootedDirectory ()
+		{
+			IsolatedStorageFile isf = IsolatedStorageFile.GetUserStoreForAssembly ();
+			try {
+				isf.CreateDirectory ("test/nested/directory/structure/without/root");
+				isf.CreateDirectory ("/test/nested/directory/structure/with/root");
+			}
+			finally {
+				isf.DeleteDirectory ("test/nested/directory/structure/without/root");
+				isf.DeleteDirectory ("test/nested/directory/structure/without");
+
+				isf.DeleteDirectory ("/test/nested/directory/structure/with/root");
+				isf.DeleteDirectory ("/test/nested/directory/structure/with");
+				isf.DeleteDirectory ("/test/nested/directory/structure");
+				isf.DeleteDirectory ("/test/nested/directory");
+				isf.DeleteDirectory ("/test/nested");
+				isf.DeleteDirectory ("/test");
+			}
+		}
 	}
 }

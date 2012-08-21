@@ -6,6 +6,7 @@
  * Author: Paolo Molaro (lupus@ximian.com)
  *
  * Copyright 2008-2009 Novell, Inc (http://www.novell.com)
+ * 2011 Xamarin, Inc
  */
 
 #include "config.h"
@@ -1003,6 +1004,25 @@ predef_writable_counter (ImplVtable *vtable, MonoBoolean only_value, MonoCounter
 			return TRUE;
 		case COUNTER_THREADPOOL_IOTHREADS:
 			sample->rawValue = mono_perfcounters->threadpool_iothreads;
+			return TRUE;
+		}
+		break;
+	case CATEGORY_JIT:
+		switch (id) {
+		case COUNTER_JIT_BYTES:
+			sample->rawValue = mono_perfcounters->jit_bytes;
+			return TRUE;
+		case COUNTER_JIT_METHODS:
+			sample->rawValue = mono_perfcounters->jit_methods;
+			return TRUE;
+		case COUNTER_JIT_TIME:
+			sample->rawValue = mono_perfcounters->jit_time;
+			return TRUE;
+		case COUNTER_JIT_BYTES_PSEC:
+			sample->rawValue = mono_perfcounters->jit_bytes;
+			return TRUE;
+		case COUNTER_JIT_FAILURES:
+			sample->rawValue = mono_perfcounters->jit_failures;
 			return TRUE;
 		}
 		break;

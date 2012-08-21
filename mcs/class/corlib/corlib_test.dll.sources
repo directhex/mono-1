@@ -56,10 +56,8 @@ System/DecimalFormatterTest.cs
 System/DecimalTest2.cs
 System/DecimalTest.cs
 System.Diagnostics/DebuggerDisplayAttributeTest.cs
-System.Diagnostics/DebugTest.cs
 System.Diagnostics/StackFrameTest.cs
 System.Diagnostics/StackTraceTest.cs
-System.Diagnostics/TextWriterTraceListenerTest.cs
 System.Diagnostics.Contracts/ContractAssertTest.cs
 System.Diagnostics.Contracts/ContractAssumeTest.cs
 System.Diagnostics.Contracts/ContractCollectionMethodsTest.cs
@@ -159,6 +157,7 @@ System.Reflection.Emit/MethodBuilderTest.cs
 System.Reflection.Emit/MethodOnTypeBuilderInstTest.cs
 System.Reflection.Emit/MethodRentalTest.cs
 System.Reflection.Emit/ModuleBuilderTest.cs
+System.Reflection.Emit/ParameterBuilderTest.cs
 System.Reflection.Emit/PropertyBuilderTest.cs
 System.Reflection.Emit/SignatureHelperTest.cs
 System.Reflection.Emit/TypeBuilderTest.cs
@@ -177,6 +176,7 @@ System.Runtime.CompilerServices/AsyncVoidMethodBuilderTest.cs
 System.Runtime.CompilerServices/TaskAwaiterTest.cs
 System.Runtime.CompilerServices/TaskAwaiterTest_T.cs
 System.Runtime.CompilerServices/YieldAwaitableTest.cs
+System.Runtime.ExceptionServices/ExceptionDispatchInfoTest.cs
 System.Runtime.InteropServices/ExternalExceptionTest.cs
 System.Runtime.InteropServices/GCHandleTest.cs
 System.Runtime.InteropServices/MarshalTest.cs
@@ -204,9 +204,26 @@ System.Runtime.Versioning/TargetFrameworkAttributeTest.cs
 System.Runtime.Versioning/VersioningHelperTest.cs
 System/SByteTest.cs
 System.Security/CodeAccessPermissionTest.cs
+System.Security.AccessControl/AuthorizationRuleTest.cs
 System.Security.AccessControl/CommonAceTest.cs
+System.Security.AccessControl/CommonAclTest.cs
+System.Security.AccessControl/CommonObjectSecurityTest.cs
+System.Security.AccessControl/CommonSecurityDescriptorTest.cs
+System.Security.AccessControl/CryptoKeyAccessRuleTest.cs
+System.Security.AccessControl/DirectoryObjectSecurityTest.cs
+System.Security.AccessControl/DirectorySecurityTest.cs
+System.Security.AccessControl/DiscretionaryAclTest.cs
+System.Security.AccessControl/EventWaitHandleSecurityTest.cs
+System.Security.AccessControl/FileSecurityTest.cs
+System.Security.AccessControl/MutexAccessRuleTest.cs
+System.Security.AccessControl/MutexSecurityTest.cs
+System.Security.AccessControl/ObjectAceTest.cs
+System.Security.AccessControl/ObjectSecurityTest.cs
+System.Security.AccessControl/ObjectSecurity_TTest.cs
 System.Security.AccessControl/RawAclTest.cs
 System.Security.AccessControl/RawSecurityDescriptorTest.cs
+System.Security.AccessControl/RegistrySecurityTest.cs
+System.Security.AccessControl/SystemAclTest.cs
 System.Security.Cryptography/AllTests2.cs
 System.Security.Cryptography/AsymmetricAlgorithmTest.cs
 System.Security.Cryptography/CipherModeTest.cs
@@ -267,7 +284,6 @@ System.Security.Cryptography/TripleDESCryptoServiceProviderTest.cs
 System.Security.Cryptography/TripleDESTest.cs
 System.Security.Cryptography.X509Certificates/X509CapiTest.cs
 System.Security.Cryptography.X509Certificates/X509CertificateTest.cs
-System.Security.Cryptography.X509Certificates/X509Cert20Test.cs
 System.Security.Cryptography.X509Certificates/X509SpcTest.cs
 System.Security/HostSecurityManagerTest.cs
 System.Security/NamedPermissionSetTest.cs
@@ -372,6 +388,7 @@ System.Text/UTF7EncodingTest.cs
 System.Text/UTF8EncodingTest.cs
 System.Text/UTF32EncodingTest.cs
 System.Threading/AutoResetEventTest.cs
+System.Threading/CancellationTokenSourceTest.cs
 System.Threading/CompressedStackTest.cs
 System.Threading/EventWaitHandleTest.cs
 System.Threading/ExecutionContextTest.cs
@@ -381,7 +398,9 @@ System.Threading/ThreadTest.cs
 System.Threading/ReaderWriterLockTest.cs
 System.Threading/TimerTest.cs
 System.Threading/InterlockedTest.cs
+System.Threading/LazyInitializerTest.cs
 System.Threading/WaitHandleTest.cs
+System.Threading/VolatileTest.cs
 System/TimeSpanTest.cs
 System/TimeZoneTest.cs
 System/TypeTest.cs
@@ -442,6 +461,7 @@ System.Threading/ExecutionContextCas.cs
 System.Threading/MutexCas.cs
 System.Threading/ThreadCas.cs
 System.Threading/WaitHandleCas.cs
+System.Threading.Tasks/ConcurrentExclusiveSchedulerPairTest.cs
 System.Threading.Tasks/TaskTest.cs
 System.Threading.Tasks/Task_T_Test.cs
 System.Threading.Tasks/TaskSchedulerTest.cs
@@ -453,7 +473,6 @@ System.Threading.Tasks/ParallelTests.cs
 System.Collections.Concurrent/ParallelConcurrentStackTests.cs
 System.Collections.Concurrent/PartitionerTests.cs
 System.Collections.Concurrent/ConcurrentQueueTests.cs
-System.Collections.Concurrent/ConcurrentBagTests.cs
 System.Collections.Concurrent/ConcurrentStackTests.cs
 System.Collections.Concurrent/ConcurrentDictionaryTests.cs
 System.Collections.Concurrent/CollectionStressTestHelper.cs

@@ -39,6 +39,7 @@ namespace IKVM.Reflection
 		public abstract MethodImplAttributes GetMethodImplementationFlags();
 		public abstract MethodBody GetMethodBody();
 		public abstract CallingConventions CallingConvention { get; }
+		public abstract int __MethodRVA { get; }
 
 		public bool IsConstructor
 		{
@@ -145,5 +146,18 @@ namespace IKVM.Reflection
 		internal abstract int ImportTo(Emit.ModuleBuilder module);
 
 		internal abstract MethodBase BindTypeParameters(Type type);
+
+		internal sealed override bool BindingFlagsMatch(BindingFlags flags)
+		{
+			return BindingFlagsMatch(IsPublic, flags, BindingFlags.Public, BindingFlags.NonPublic)
+				&& BindingFlagsMatch(IsStatic, flags, BindingFlags.Static, BindingFlags.Instance);
+		}
+
+		internal sealed override bool BindingFlagsMatchInherited(BindingFlags flags)
+		{
+			return (Attributes & MethodAttributes.MemberAccessMask) > MethodAttributes.Private
+				&& BindingFlagsMatch(IsPublic, flags, BindingFlags.Public, BindingFlags.NonPublic)
+				&& BindingFlagsMatch(IsStatic, flags, BindingFlags.Static | BindingFlags.FlattenHierarchy, BindingFlags.Instance);
+		}
 	}
 }

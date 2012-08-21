@@ -47,6 +47,7 @@ namespace System.Configuration
 		ElementInformation elementInfo;
 		ConfigurationElementProperty elementProperty;
 		Configuration _configuration;
+		bool elementPresent;
 
 		internal Configuration Configuration {
 			get { return _configuration; }
@@ -162,19 +163,21 @@ namespace System.Configuration
 		protected void SetPropertyValue (ConfigurationProperty prop, object value, bool ignoreLocks)
 		{
 			try {
-				/* XXX all i know for certain is that Validation happens here */
-				prop.Validate (value);
+				if (value != null) {
+					/* XXX all i know for certain is that Validation happens here */
+					prop.Validate (value);
 
-				/* XXX presumably the actual setting of the
-				 * property happens here instead of in the
-				 * set_Item code below, but that would mean
-				 * the Value needs to be stuffed in the
-				 * property, not the propertyinfo (or else the
-				 * property needs a ref to the property info
-				 * to correctly set the value). */
+					/* XXX presumably the actual setting of the
+					 * property happens here instead of in the
+					 * set_Item code below, but that would mean
+					 * the Value needs to be stuffed in the
+					 * property, not the propertyinfo (or else the
+					 * property needs a ref to the property info
+					 * to correctly set the value). */
+				}
 			}
 			catch (Exception e) {
-				throw new ConfigurationErrorsException (String.Format ("The value for the property '{0}' is not valid. The error is: {1}", prop.Name, e.Message), e);
+				throw new ConfigurationErrorsException (String.Format ("The value for the property '{0}' on type {1} is not valid.", prop.Name, this.ElementInformation.Type), e);
 			}
 		}
 
@@ -297,6 +300,8 @@ namespace System.Configuration
 			Hashtable readProps = new Hashtable ();
 			
 			reader.MoveToContent ();
+			elementPresent = true;
+			
 			while (reader.MoveToNextAttribute ())
 			{
 				PropertyInformation prop = ElementInformation.Properties [reader.LocalName];
@@ -344,6 +349,12 @@ namespace System.Configuration
 					throw new ConfigurationErrorsException (msg, reader);
 				}
 				readProps [prop] = prop.Name;
+			
+				ConfigXmlTextReader _reader = reader as ConfigXmlTextReader;
+				if (_reader != null){
+					prop.Source = _reader.Filename;
+					prop.LineNumber = _reader.LineNumber;
+				}
 			}
 			
 			reader.MoveToElement ();
@@ -375,7 +386,7 @@ namespace System.Configuration
 					}
 					
 					if (!prop.IsElement)
-						throw new ConfigurationException ("Property '" + prop.Name + "' is not a ConfigurationElement.");
+						throw new ConfigurationErrorsException ("Property '" + prop.Name + "' is not a ConfigurationElement.");
 					
 					if (readProps.Contains (prop))
 						throw new ConfigurationErrorsException ("The element <" + prop.Name + "> may only appear once in this section.", reader);
@@ -451,6 +462,8 @@ namespace System.Configuration
 
 		protected internal virtual void Reset (ConfigurationElement parentElement)
 		{
+			elementPresent = false;
+			
 			if (parentElement != null)
 				ElementInformation.Reset (parentElement.ElementInformation);
 			else
@@ -519,7 +532,7 @@ namespace System.Configuration
 				ConfigurationSaveMode updateMode)
 		{
 			if (parent != null && source.GetType() != parent.GetType())
-				throw new ConfigurationException ("Can't unmerge two elements of different type");
+				throw new ConfigurationErrorsException ("Can't unmerge two elements of different type");
 			
 			foreach (PropertyInformation prop in source.ElementInformation.Properties)
 			{
@@ -565,6 +578,11 @@ namespace System.Configuration
 			return info != null && info.ValueOrigin == PropertyValueOrigin.SetHere;
 		}
 
+		internal bool IsElementPresent
+		{
+			get {	return elementPresent;	}
+		}
+
 		void ValidateValue (ConfigurationProperty p, string value)
 		{
 			ConfigurationValidatorBase validator;
@@ -572,7 +590,7 @@ namespace System.Configuration
 				return;
 			
 			if (!validator.CanValidate (p.Type))
-				throw new ConfigurationException (
+				throw new ConfigurationErrorsException (
 					String.Format ("Validator does not support type {0}", p.Type));
 			validator.Validate (p.ConvertFromString (value));
 		}

@@ -114,14 +114,12 @@ namespace System.Net
 		private static bool _checkCRL = false;
 		private static SecurityProtocolType _securityProtocol = SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls;
 
-#if NET_1_1
 #if TARGET_JVM
 		static bool expectContinue = false;
 #else
 		static bool expectContinue = true;
 #endif
 		static bool useNagle;
-#endif
 		static RemoteCertificateValidationCallback server_cert_cb;
 		static bool tcp_keepalive;
 		static int tcp_keepalive_time;
@@ -130,7 +128,11 @@ namespace System.Net
 		// Fields
 		
 		public const int DefaultNonPersistentConnectionLimit = 4;
+#if MONOTOUCH
+		public const int DefaultPersistentConnectionLimit = 10;
+#else
 		public const int DefaultPersistentConnectionLimit = 2;
+#endif
 
 #if !NET_2_1
 		const string configKey = "system.net/connectionManagement";
@@ -140,7 +142,7 @@ namespace System.Net
 		static ServicePointManager ()
 		{
 #if !NET_2_1
-#if NET_2_0 && CONFIGURATION_DEP
+#if CONFIGURATION_DEP
 			object cfg = ConfigurationManager.GetSection (configKey);
 			ConnectionManagementSection s = cfg as ConnectionManagementSection;
 			if (s != null) {
@@ -166,22 +168,14 @@ namespace System.Net
 		
 		// Properties
 		
-#if NET_2_0
 		[Obsolete ("Use ServerCertificateValidationCallback instead", false)]
-#endif
 		public static ICertificatePolicy CertificatePolicy {
 			get { return policy; }
 			set { policy = value; }
 		}
 
-#if NET_1_0
-		// we need it for SslClientStream
-		internal
-#else
 		[MonoTODO("CRL checks not implemented")]
-		public
-#endif
-		static bool CheckCertificateRevocationList {
+		public static bool CheckCertificateRevocationList {
 			get { return _checkCRL; }
 			set { _checkCRL = false; }	// TODO - don't yet accept true
 		}
@@ -196,7 +190,6 @@ namespace System.Net
 			}
 		}
 
-#if NET_2_0
 		static Exception GetMustImplement ()
 		{
 			return new NotImplementedException ();
@@ -223,7 +216,6 @@ namespace System.Net
 				throw GetMustImplement ();
 			}
 		}
-#endif
 		
 		public static int MaxServicePointIdleTime {
 			get { 
@@ -270,7 +262,6 @@ namespace System.Net
 			}
 		}
 
-#if NET_1_1
 		public static bool Expect100Continue {
 			get { return expectContinue; }
 			set { expectContinue = value; }
@@ -280,7 +271,7 @@ namespace System.Net
 			get { return useNagle; }
 			set { useNagle = value; }
 		}
-#endif
+
 		// Methods
 		public static void SetTcpKeepAlive (bool enabled, int keepAliveTime, int keepAliveInterval)
 		{
@@ -410,26 +401,16 @@ namespace System.Net
 				return new ValidationResult (true, false, 0);
 			}
 		}
-#elif NET_2_0 && SECURITY_DEP
+#elif SECURITY_DEP
 		internal class ChainValidationHelper {
 			object sender;
 			string host;
 			static bool is_macosx = System.IO.File.Exists (MSX.OSX509Certificates.SecurityLibrary);
 			static X509RevocationMode revocation_mode;
 
-#if MONODROID
-			static readonly Converter<Mono.Security.X509.X509CertificateCollection, bool> monodroidCallback;
-#endif
-
 			static ChainValidationHelper ()
 			{
-#if MONODROID
-				monodroidCallback = (Converter<Mono.Security.X509.X509CertificateCollection, bool>)
-					Delegate.CreateDelegate (typeof(Converter<Mono.Security.X509.X509CertificateCollection, bool>), 
-							Type.GetType ("Android.Runtime.AndroidEnvironment, Mono.Android", true)
-							.GetMethod ("TrustEvaluateSsl", 
-								System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic));
-#endif
+#if !MONOTOUCH
 				revocation_mode = X509RevocationMode.NoCheck;
 				try {
 					string str = Environment.GetEnvironmentVariable ("MONO_X509_REVOCATION_MODE");
@@ -438,6 +419,7 @@ namespace System.Net
 					revocation_mode = (X509RevocationMode) Enum.Parse (typeof (X509RevocationMode), str, true);
 				} catch {
 				}
+#endif
 			}
 
 			public ChainValidationHelper (object sender)
@@ -467,7 +449,12 @@ namespace System.Net
 				ICertificatePolicy policy = ServicePointManager.CertificatePolicy;
 				RemoteCertificateValidationCallback cb = ServicePointManager.ServerCertificateValidationCallback;
 
-				X509Chain chain = new X509Chain ();
+				X509Certificate2 leaf = new X509Certificate2 (certs [0].RawData);
+				int status11 = 0; // Error code passed to the obsolete ICertificatePolicy callback
+				SslPolicyErrors errors = 0;
+				X509Chain chain = null;
+#if !MONOTOUCH
+				chain = new X509Chain ();
 				chain.ChainPolicy = new X509ChainPolicy ();
 				chain.ChainPolicy.RevocationMode = revocation_mode;
 				for (int i = 1; i < certs.Count; i++) {
@@ -475,9 +462,6 @@ namespace System.Net
 					chain.ChainPolicy.ExtraStore.Add (c2);
 				}
 
-				X509Certificate2 leaf = new X509Certificate2 (certs [0].RawData);
-				int status11 = 0; // Error code passed to the obsolete ICertificatePolicy callback
-				SslPolicyErrors errors = 0;
 				try {
 					if (!chain.Build (leaf))
 						errors |= GetErrorsFromChain (chain);
@@ -486,7 +470,7 @@ namespace System.Net
 					Console.Error.WriteLine ("Please, report this problem to the Mono team");
 					errors |= SslPolicyErrors.RemoteCertificateChainErrors;
 				}
-
+#endif
 				if (!CheckCertificateUsage (leaf)) {
 					errors |= SslPolicyErrors.RemoteCertificateChainErrors;
 					status11 = -2146762490; //CERT_E_PURPOSE 0x800B0106
@@ -504,7 +488,7 @@ namespace System.Net
 #endif
 					// Attempt to use OSX certificates
 					// Ideally we should return the SecTrustResult
-					MSX.OSX509Certificates.SecTrustResult trustResult;
+					MSX.OSX509Certificates.SecTrustResult trustResult = MSX.OSX509Certificates.SecTrustResult.Deny;
 					try {
 						trustResult = MSX.OSX509Certificates.TrustEvaluateSsl (certs);
 						// We could use the other values of trustResult to pass this extra information
@@ -519,13 +503,17 @@ namespace System.Net
 					if (result) {
 						status11 = 0;
 						errors = 0;
+					} else {
+						// callback and DefaultCertificatePolicy needs this since 'result' is not specified
+						status11 = (int) trustResult;
+						errors |= SslPolicyErrors.RemoteCertificateChainErrors;
 					}
 #if !MONOTOUCH
 				}
 #endif
 
 #if MONODROID
-				result = monodroidCallback (certs);
+				result = AndroidPlatform.TrustEvaluateSsl (certs, sender, leaf, chain, errors);
 				if (result) {
 					status11 = 0;
 					errors = 0;
@@ -536,7 +524,7 @@ namespace System.Net
 					ServicePoint sp = null;
 					HttpWebRequest req = sender as HttpWebRequest;
 					if (req != null)
-						sp = req.ServicePoint;
+						sp = req.ServicePointNoLock;
 					if (status11 == 0 && errors != 0)
 						status11 = GetStatusFromChain (chain);
 

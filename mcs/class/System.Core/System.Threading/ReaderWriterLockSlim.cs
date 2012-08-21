@@ -128,7 +128,7 @@ namespace System.Threading {
 			return TryEnterReadLock (millisecondsTimeout, ref dummy);
 		}
 
-		public bool TryEnterReadLock (int millisecondsTimeout, ref bool success)
+		bool TryEnterReadLock (int millisecondsTimeout, ref bool success)
 		{
 			ThreadLockState ctstate = CurrentThreadState;
 
@@ -148,8 +148,9 @@ namespace System.Threading {
 				try {}
 				finally {
 					Interlocked.Add (ref rwlock, RwRead);
-					ctstate.LockState ^= LockState.Read;
+					ctstate.LockState |= LockState.Read;
 					++ctstate.ReaderRecursiveCount;
+					success = true;
 				}
 
 				return true;
@@ -258,7 +259,7 @@ namespace System.Threading {
 					}
 				}
 
-				int stateCheck = isUpgradable ? RwWaitUpgrade : RwWait;
+				int stateCheck = isUpgradable ? RwWaitUpgrade + RwWait : RwWait;
 				long start = millisecondsTimeout == -1 ? 0 : sw.ElapsedMilliseconds;
 
 				do {
@@ -394,7 +395,8 @@ namespace System.Threading {
 					TryEnterReadLock (ComputeTimeout (millisecondsTimeout, start), ref success);
 				} finally {
 					if (success) {
-						ctstate.LockState = LockState.Upgradable;
+						ctstate.LockState |= LockState.Upgradable;
+						ctstate.LockState &= ~LockState.Read;
 						--ctstate.ReaderRecursiveCount;
 						++ctstate.UpgradeableRecursiveCount;
 					} else {
@@ -432,11 +434,12 @@ namespace System.Threading {
 					upgradableTaken.Value = false;
 					upgradableEvent.Set ();
 
-					ctstate.LockState ^= LockState.Upgradable;
+					ctstate.LockState &= ~LockState.Upgradable;
 					if (Interlocked.Add (ref rwlock, -RwRead) >> RwReadBit == 0)
 						readerDoneEvent.Set ();
 				}
 			}
+
 		}
 
 		public void Dispose ()
@@ -539,7 +542,7 @@ namespace System.Threading {
 			// Detect and prevent recursion
 			LockState ctstate = state.LockState;
 
-			if (ctstate != LockState.None && noRecursion && (ctstate != LockState.Upgradable || validState == LockState.Upgradable))
+			if (ctstate != LockState.None && noRecursion && (!ctstate.Has (LockState.Upgradable) || validState == LockState.Upgradable))
 				throw new LockRecursionException ("The current thread has already a lock and recursion isn't supported");
 
 			if (noRecursion)

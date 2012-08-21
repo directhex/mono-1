@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -35,10 +35,17 @@ namespace IKVM.Reflection
 		EnableJITcompileTracking = 32768,
 	}
 
+	public enum AssemblyContentType
+	{
+		Default = 0,
+		WindowsRuntime = 1,
+	}
+
 	[Flags]
 	public enum BindingFlags
 	{
 		Default = 0,
+		IgnoreCase = 1,
 		DeclaredOnly = 2,
 		Instance = 4,
 		Static = 8,
@@ -175,6 +182,7 @@ namespace IKVM.Reflection
 		Synchronized		= 0x0020,
 		NoInlining			= 0x0008,
 		NoOptimization		= 0x0040,
+		AggressiveInlining  = 0x0100,
 
 		MaxMethodImplVal	= 0xffff,
 	}
@@ -203,6 +211,7 @@ namespace IKVM.Reflection
 		Required32Bit = 2,
 		PE32Plus = 4,
 		Unmanaged32Bit = 8,
+		Preferred32Bit = 16,
 	}
 
 	public enum ProcessorArchitecture
@@ -212,6 +221,8 @@ namespace IKVM.Reflection
 		X86 = 2,
 		IA64 = 3,
 		Amd64 = 4,
+		Arm = 5,
+		// if an item is added here, make sure to update AssemblyName.ProcessorArchitecture and Fusion.ParseAssemblyName as well
 	}
 
 	[Flags]
@@ -230,6 +241,7 @@ namespace IKVM.Reflection
 		Private = 2,
 	}
 
+	[Flags]
 	public enum ResourceLocation
 	{
 		Embedded = 1,
@@ -263,6 +275,7 @@ namespace IKVM.Reflection
 		RTSpecialName = 2048,
 		Import = 4096,
 		Serializable = 8192,
+		WindowsRuntime = 16384,
 		UnicodeClass = 65536,
 		AutoClass = 131072,
 		CustomFormatClass = 196608,
@@ -271,5 +284,41 @@ namespace IKVM.Reflection
 		ReservedMask = 264192,
 		BeforeFieldInit = 1048576,
 		CustomFormatMask = 12582912,
+	}
+
+	// IKVM.Reflection specific type
+	[Flags]
+	public enum DllCharacteristics
+	{
+		HighEntropyVA = 0x0020,			// IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+		DynamicBase = 0x0040,			// IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+		NoSEH = 0x0400,					// IMAGE_DLLCHARACTERISTICS_NO_SEH
+		NXCompat = 0x0100,				// IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+		AppContainer = 0x1000,			// IMAGE_DLLCHARACTERISTICS_APPCONTAINER
+		TerminalServerAware = 0x8000,	// IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE
+	}
+
+	// IKVM.Reflection specific type
+	[Flags]
+	public enum ImplMapFlags
+	{
+		NoMangle = 0x0001,
+		CharSetMask = 0x0006,
+		CharSetNotSpec = 0x0000,
+		CharSetAnsi = 0x0002,
+		CharSetUnicode = 0x0004,
+		CharSetAuto = 0x0006,
+		SupportsLastError = 0x0040,
+		CallConvMask = 0x0700,
+		CallConvWinapi = 0x0100,
+		CallConvCdecl = 0x0200,
+		CallConvStdcall = 0x0300,
+		CallConvThiscall = 0x0400,
+		CallConvFastcall = 0x0500,
+		// non-standard flags (i.e. CLR specific)
+		BestFitOn = 0x0010,
+		BestFitOff = 0x0020,
+		CharMapErrorOn = 0x1000,
+		CharMapErrorOff = 0x2000,
 	}
 }

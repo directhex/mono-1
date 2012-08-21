@@ -24,6 +24,20 @@ namespace MonoTests.System
 [TestFixture]
 public class StringTest
 {
+	class NullFormatter : IFormatProvider, ICustomFormatter
+	{
+		public string Format (string format, object arg, IFormatProvider provider)
+		{
+			return null;
+		}
+
+		public object GetFormat (Type formatType)
+		{
+			return this;
+		}
+	}
+
+
 	private CultureInfo orgCulture;
 
 	[SetUp]
@@ -1159,6 +1173,13 @@ public class StringTest
 			Assert.IsNotNull (ex.Message, "#4");
 			Assert.AreEqual ("format", ex.ParamName, "#5");
 		}
+	}
+
+	[Test]
+	public void Format ()
+	{
+		var s = String.Format (new NullFormatter (), "{0:}", "test");
+		Assert.AreEqual ("test", s);
 	}
 
 	[Test]
@@ -2298,10 +2319,12 @@ public class StringTest
 
 		string s3 = new DateTime (2000, 3, 7).ToString ();
 		Assert.IsNull (String.IsInterned (s3), "#C1");
-		Assert.AreSame (s3, String.Intern (s3), "#C2");
-		Assert.AreSame (s3, String.IsInterned (s3), "#C3");
-		Assert.AreSame (s3, String.IsInterned (new DateTime (2000, 3, 7).ToString ()), "#C4");
-		Assert.AreSame (s3, String.Intern (new DateTime (2000, 3, 7).ToString ()), "#C5");
+
+		string s4 = String.Intern (s3);
+		Assert.AreEqual (s3, s4, "#C2");
+		Assert.AreSame (s4, String.IsInterned (s4), "#C3");
+		Assert.AreSame (s4, String.IsInterned (new DateTime (2000, 3, 7).ToString ()), "#C4");
+		Assert.AreSame (s4, String.Intern (new DateTime (2000, 3, 7).ToString ()), "#C5");
 	}
 
 	[Test]
@@ -3668,6 +3691,10 @@ public class StringTest
 
 		Assert.AreEqual ("original", "\u2028original\u2029".Trim (), "net_2_0 additional char#1");
 		Assert.AreEqual ("original", "\u0085original\u1680".Trim (), "net_2_0 additional char#2");
+
+#if NET_4_0
+		Assert.AreEqual ("", "\x9\xa\xb\xc\xd\x20\x85\xa0\x1680\x180e\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x2028\x2029\x202f\x205f\x3000".Trim (), "net_4_0 changes #1");
+#endif
 	}
 
 	[Test]
@@ -3839,6 +3866,10 @@ public class StringTest
 
 		chunks = s1.Split(c2, 0);
 		Assert.AreEqual (0, chunks.Length, "Zero split");
+
+#if NET_4_0
+		Assert.AreEqual (0, "\x9\xa\xb\xc\xd\x20\x85\xa0\x1680\x180e\x2000\x2001\x2002\x2003\x2004\x2005\x2006\x2007\x2008\x2009\x200a\x2028\x2029\x202f\x205f\x3000".Split ((char[]) null, StringSplitOptions.RemoveEmptyEntries).Length, "net_4_0 changes");
+#endif
 	}
 
 	[Test]
@@ -3849,6 +3880,8 @@ public class StringTest
 		Assert.AreEqual ("123", st [0], "#01");
 		st = test.Split (null);
 		Assert.AreEqual ("123", st [0], "#02");
+
+		Assert.AreEqual (1, "encyclopædia".Split (new[] { "ae" }, StringSplitOptions.None).Length, "#03");
 	}
 
 	[Test] // Split (Char [], StringSplitOptions)
@@ -4014,6 +4047,15 @@ public class StringTest
 	{
 		String[] res;
 
+		// empty
+		res = string.Empty.Split (new Char [] { 'A' });
+		Assert.AreEqual (1, res.Length);
+		Assert.AreEqual (string.Empty, res [0]);
+
+		// empty and RemoveEmpty
+		res = string.Empty.Split (new Char [] { 'A' }, StringSplitOptions.RemoveEmptyEntries);
+		Assert.AreEqual (0, res.Length);
+
 		// count == 0
 		res = "..A..B..".Split (new Char[] { '.' }, 0, StringSplitOptions.None);
 		Assert.AreEqual (0, res.Length, "#01-01");
@@ -4112,6 +4154,12 @@ public class StringTest
 		Assert.AreEqual ("hi", res[0], "#11-09-1");
 		Assert.AreEqual ("..", res[1], "#11-09-2");
 		Assert.AreEqual (2, res.Length, "#11-09-3");
+
+		Assert.AreEqual (0, "    ".Split ((char[]) null, 2, StringSplitOptions.RemoveEmptyEntries).Length, "#12-00-0");
+		
+		res = "not found".Split (new char[2]);
+		Assert.AreEqual ("not found", res[0], "#12-04-27");
+		Assert.AreEqual (1, res.Length, "#12-04-27-A");
 	}
 	
 	[Test]
@@ -4333,8 +4381,8 @@ public class StringTest
 		Assert.AreEqual (String.Empty, "".Insert (0, String.Empty), "Insert(Empty)");
 		Assert.AreEqual (String.Empty, String.Empty.Insert (0, ""), "Empty.Insert");
 
-		Assert.AreNotSame (String.Empty, String.Empty.PadLeft (0), "PadLeft(int)");
-		Assert.AreNotSame (String.Empty, String.Empty.PadLeft (0, '.'), "PadLeft(int.char)");
+		Assert.AreSame (String.Empty, String.Empty.PadLeft (0), "PadLeft(int)");
+		Assert.AreSame (String.Empty, String.Empty.PadLeft (0, '.'), "PadLeft(int.char)");
 		Assert.AreSame (String.Empty, String.Empty.PadRight (0), "PadRight(int)");
 		Assert.AreSame (String.Empty, String.Empty.PadRight (0, '.'), "PadRight(int.char)");
 

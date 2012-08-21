@@ -351,7 +351,7 @@ namespace IKVM.Reflection.Emit
 					GetTypeNameImpl(sb, type.GetElementType());
 					sb.Append(((ElementHolderType)type).GetSuffix());
 				}
-				else if (type.IsGenericTypeInstance)
+				else if (type.IsConstructedGenericType)
 				{
 					sb.Append(type.GetGenericTypeDefinition().FullName);
 					sb.Append('[');
@@ -570,7 +570,7 @@ namespace IKVM.Reflection.Emit
 			{
 				if (constructorArgs != null)
 				{
-					return new CustomAttributeData(asm, con, (int)constructorArgs[0], blob);
+					return new CustomAttributeData(asm, con, (int)constructorArgs[0], blob, -1);
 				}
 				return new CustomAttributeData(asm, con, new IKVM.Reflection.Reader.ByteReader(blob, 0, blob.Length));
 			}

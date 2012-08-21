@@ -293,6 +293,46 @@ mono_llvm_build_aligned_store (LLVMBuilderRef builder, LLVMValueRef Val, LLVMVal
 	return wrap (ins);
 }
 
+LLVMValueRef
+mono_llvm_build_cmpxchg (LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp, LLVMValueRef val)
+{
+	AtomicCmpXchgInst *ins;
+
+	ins = unwrap(builder)->CreateAtomicCmpXchg (unwrap(ptr), unwrap (cmp), unwrap (val), SequentiallyConsistent);
+	return wrap (ins);
+}
+
+LLVMValueRef
+mono_llvm_build_atomic_rmw (LLVMBuilderRef builder, AtomicRMWOp op, LLVMValueRef ptr, LLVMValueRef val)
+{
+	AtomicRMWInst::BinOp aop = AtomicRMWInst::Xchg;
+	AtomicRMWInst *ins;
+
+	switch (op) {
+	case LLVM_ATOMICRMW_OP_XCHG:
+		aop = AtomicRMWInst::Xchg;
+		break;
+	case LLVM_ATOMICRMW_OP_ADD:
+		aop = AtomicRMWInst::Add;
+		break;
+	default:
+		g_assert_not_reached ();
+		break;
+	}
+
+	ins = unwrap (builder)->CreateAtomicRMW (aop, unwrap (ptr), unwrap (val), AcquireRelease);
+	return wrap (ins);
+}
+
+LLVMValueRef
+mono_llvm_build_fence (LLVMBuilderRef builder)
+{
+	FenceInst *ins;
+
+	ins = unwrap (builder)->CreateFence (AcquireRelease);
+	return wrap (ins);
+}
+
 void
 mono_llvm_replace_uses_of (LLVMValueRef var, LLVMValueRef v)
 {
@@ -445,7 +485,7 @@ mono_llvm_create_ee (LLVMModuleProviderRef MP, AllocCodeMemoryCb *alloc_cb, Func
   mono_mm = new MonoJITMemoryManager ();
   mono_mm->alloc_cb = alloc_cb;
 
-  JITExceptionHandling = true;
+  //JITExceptionHandling = true;
   // PrettyStackTrace installs signal handlers which trip up libgc
   DisablePrettyStackTrace = true;
 
@@ -454,11 +494,26 @@ mono_llvm_create_ee (LLVMModuleProviderRef MP, AllocCodeMemoryCb *alloc_cb, Func
    * test_0_fields_with_big_offsets (among others) crashes, because LLVM tries to call
    * memset using a normal pcrel code which is in 32bit memory, while memset isn't.
    */
+
+  TargetOptions opts;
+  opts.JITExceptionHandling = 1;
+
+  EngineBuilder b (unwrap (MP));
+#ifdef TARGET_AMD64
+  ExecutionEngine *EE = b.setJITMemoryManager (mono_mm).setTargetOptions (opts).setCodeModel (CodeModel::Large).setAllocateGVsWithCode (true).create ();
+#else
+  ExecutionEngine *EE = b.setJITMemoryManager (mono_mm).setTargetOptions (opts).setAllocateGVsWithCode (true).create ();
+#endif
+  g_assert (EE);
+
+#if 0
   ExecutionEngine *EE = ExecutionEngine::createJIT (unwrap (MP), &Error, mono_mm, CodeGenOpt::Default, true, Reloc::Default, CodeModel::Large);
   if (!EE) {
 	  errs () << "Unable to create LLVM ExecutionEngine: " << Error << "\n";
 	  g_assert_not_reached ();
   }
+#endif
+
   EE->InstallExceptionTableRegister (exception_cb);
   mono_event_listener = new MonoJITEventListener (emitted_cb);
   EE->RegisterJITEventListener (mono_event_listener);

@@ -4,6 +4,8 @@ include ../../build/rules.make
 
 LIBRARY = monodoc.dll
 LIBRARY_PACKAGE = monodoc
+# Remove a bunch of "obsolete"-type warning for Lucene.NET
+LOCAL_MCS_FLAGS = /nowarn:618,612,672,809
 
 IMAGES = \
 	Resources/images/bc_bg.png		\
@@ -88,7 +90,7 @@ EXTRA_DISTFILES = \
 
 LIB_MCS_FLAGS = \
 	/codepage:utf8                                                    \
-	/nowarn:169,164,162,168,219                                       \
+	/nowarn:169,164,162,168,219,618,612                                      \
 	/r:Commons.Xml.Relaxng                                            \
 	/resource:../../docs/monodoc.xml,monodoc.xml                      \
 	/resource:Resources/base.css,base.css                             \
@@ -112,8 +114,8 @@ LIB_MCS_FLAGS = \
 	/r:$(corlib)                                                      \
 	/r:System.dll                                                     \
 	/r:System.Core.dll                                                \
-	/r:System.Web                                                     \
-	/r:System.Web.Services                                            \
+	/r:System.Configuration.dll                                       \
+	/r:System.Web.Services.dll                                        \
 	/r:System.Xml.dll
 
 include ../../build/library.make

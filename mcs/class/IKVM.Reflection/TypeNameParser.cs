@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009-2011 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -23,6 +23,7 @@
 */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 
 namespace IKVM.Reflection
@@ -86,6 +87,11 @@ namespace IKVM.Reflection
 			return this == other;
 		}
 
+		internal TypeName ToLowerInvariant()
+		{
+			return new TypeName(ns == null ? null : ns.ToLowerInvariant(), name.ToLowerInvariant());
+		}
+
 		internal static TypeName Split(string name)
 		{
 			int dot = name.LastIndexOf('.');
@@ -122,17 +128,27 @@ namespace IKVM.Reflection
 			for (int pos = 0; pos < name.Length; pos++)
 			{
 				char c = name[pos];
-				if (SpecialChars.IndexOf(c) != -1)
+				switch (c)
 				{
-					if (sb == null)
-					{
-						sb = new StringBuilder(name, 0, pos, name.Length + 3);
-					}
-					sb.Append('\\').Append(c);
-				}
-				else if (sb != null)
-				{
-					sb.Append(c);
+					case '\\':
+					case '+':
+					case ',':
+					case '[':
+					case ']':
+					case '*':
+					case '&':
+						if (sb == null)
+						{
+							sb = new StringBuilder(name, 0, pos, name.Length + 3);
+						}
+						sb.Append("\\").Append(c);
+						break;
+					default:
+						if (sb != null)
+						{
+							sb.Append(c);
+						}
+						break;
 				}
 			}
 			return sb != null ? sb.ToString() : name;
@@ -439,8 +455,9 @@ namespace IKVM.Reflection
 			}
 		}
 
-		internal Type GetType(Universe universe, Assembly context, bool throwOnError, string originalName, bool resolve)
+		internal Type GetType(Universe universe, Assembly context, bool throwOnError, string originalName, bool resolve, bool ignoreCase)
 		{
+			Debug.Assert(!resolve || !ignoreCase);
 			TypeName name = TypeName.Split(this.name);
 			Type type;
 			if (assemblyName != null)
@@ -454,6 +471,10 @@ namespace IKVM.Reflection
 				{
 					type = asm.ResolveType(name);
 				}
+				else if (ignoreCase)
+				{
+					type = asm.FindTypeIgnoreCase(name.ToLowerInvariant());
+				}
 				else
 				{
 					type = asm.FindType(name);
@@ -465,6 +486,10 @@ namespace IKVM.Reflection
 				{
 					type = universe.Mscorlib.ResolveType(name);
 				}
+				else if (ignoreCase)
+				{
+					type = universe.Mscorlib.FindTypeIgnoreCase(name.ToLowerInvariant());
+				}
 				else
 				{
 					type = universe.Mscorlib.FindType(name);
@@ -472,10 +497,25 @@ namespace IKVM.Reflection
 			}
 			else
 			{
-				type = context.FindType(name);
+				if (ignoreCase)
+				{
+					name = name.ToLowerInvariant();
+					type = context.FindTypeIgnoreCase(name);
+				}
+				else
+				{
+					type = context.FindType(name);
+				}
 				if (type == null && context != universe.Mscorlib)
 				{
-					type = universe.Mscorlib.FindType(name);
+					if (ignoreCase)
+					{
+						type = universe.Mscorlib.FindTypeIgnoreCase(name);
+					}
+					else
+					{
+						type = universe.Mscorlib.FindType(name);
+					}
 				}
 				if (type == null && resolve)
 				{
@@ -489,11 +529,12 @@ namespace IKVM.Reflection
 					}
 				}
 			}
-			return Expand(type, context, throwOnError, originalName, resolve);
+			return Expand(type, context, throwOnError, originalName, resolve, ignoreCase);
 		}
 
-		internal Type Expand(Type type, Assembly context, bool throwOnError, string originalName, bool resolve)
+		internal Type Expand(Type type, Assembly context, bool throwOnError, string originalName, bool resolve, bool ignoreCase)
 		{
+			Debug.Assert(!resolve || !ignoreCase);
 			if (type == null)
 			{
 				if (throwOnError)
@@ -509,7 +550,9 @@ namespace IKVM.Reflection
 				{
 					outer = type;
 					TypeName name = TypeName.Split(TypeNameParser.Unescape(nest));
-					type = outer.FindNestedType(name);
+					type = ignoreCase
+						? outer.FindNestedTypeIgnoreCase(name.ToLowerInvariant())
+						: outer.FindNestedType(name);
 					if (type == null)
 					{
 						if (resolve)
@@ -532,7 +575,7 @@ namespace IKVM.Reflection
 				Type[] typeArgs = new Type[genericParameters.Length];
 				for (int i = 0; i < typeArgs.Length; i++)
 				{
-					typeArgs[i] = genericParameters[i].GetType(type.Assembly.universe, context, throwOnError, originalName, resolve);
+					typeArgs[i] = genericParameters[i].GetType(type.Assembly.universe, context, throwOnError, originalName, resolve, ignoreCase);
 					if (typeArgs[i] == null)
 					{
 						return null;

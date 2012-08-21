@@ -4,18 +4,18 @@ include ../../build/rules.make
 
 LIBRARY = System.Core.dll
 
-LIB_MCS_FLAGS = -d:INSIDE_SYSCORE -d:LIBC /r:$(corlib) /r:System.dll
+LIB_MCS_FLAGS = -d:INSIDE_SYSCORE -d:LIBC /r:$(corlib) /r:System.dll -unsafe
 
 ifneq (2.1, $(FRAMEWORK_VERSION))
 LIB_MCS_FLAGS += -d:NET_3_5 -nowarn:1720
 endif
 
 ifeq (2.1, $(FRAMEWORK_VERSION))
-LIB_MCS_FLAGS += -d:CODEPLEX_40 -d:SILVERLIGHT
+LIB_MCS_FLAGS += -d:FEATURE_CORE_DLR,FEATURE_REFEMIT,ANDROID
 endif
 
 ifeq (4, $(FRAMEWORK_VERSION_MAJOR))
-LIB_MCS_FLAGS += -d:CODEPLEX_40
+LIB_MCS_FLAGS += -d:FEATURE_CORE_DLR,FEATURE_REFEMIT,FEATURE_PDBEMIT
 endif
 
 ifneq (basic, $(PROFILE))

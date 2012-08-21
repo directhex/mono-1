@@ -65,9 +65,9 @@ namespace System
 		string daylightDisplayName;
 		public string DaylightName {
 			get { 
-				if (disableDaylightSavingTime)
-					return String.Empty;
-				return daylightDisplayName; 
+				return supportsDaylightSavingTime
+					? daylightDisplayName
+					: string.Empty;
 			}
 		}
 
@@ -87,6 +87,10 @@ namespace System
 				if (local == null) {
 #if MONODROID
 					local = ZoneInfoDB.Default;
+#elif MONOTOUCH
+					using (Stream stream = GetMonoTouchDefault ()) {
+						return BuildFromStream ("Local", stream);
+					}
 #elif LIBC
 					try {
 						local = FindSystemTimeZoneByFileName ("Local", "/etc/localtime");	
@@ -98,7 +102,15 @@ namespace System
 						}
 					}
 #else
-					throw new TimeZoneNotFoundException ();
+					if (IsWindows && LocalZoneKey != null) {
+						string name = (string)LocalZoneKey.GetValue ("TimeZoneKeyName");
+						name = TrimSpecial (name);
+						if (name != null)
+							local = TimeZoneInfo.FindSystemTimeZoneById (name);
+					}
+					
+					if (local == null)
+						throw new TimeZoneNotFoundException ();
 #endif
 				}
 				return local;
@@ -110,9 +122,9 @@ namespace System
 			get { return standardDisplayName; }
 		}
 
-		bool disableDaylightSavingTime;
+		bool supportsDaylightSavingTime;
 		public bool SupportsDaylightSavingTime {
-			get  { return !disableDaylightSavingTime; }
+			get  { return supportsDaylightSavingTime; }
 		}
 
 		static TimeZoneInfo utc;
@@ -140,20 +152,55 @@ namespace System
 		private AdjustmentRule [] adjustmentRules;
 
 #if !NET_2_1
+		/// <summary>
+		/// Determine whether windows of not (taken Stephane Delcroix's code)
+		/// </summary>
+		private static bool IsWindows
+		{
+			get {
+				int platform = (int) Environment.OSVersion.Platform;
+				return ((platform != 4) && (platform != 6) && (platform != 128));
+			}
+		}
+		
+		/// <summary>
+		/// Needed to trim misc garbage in MS registry keys
+		/// </summary>
+		private static string TrimSpecial (string str)
+		{
+			var Istart = 0;
+			while (Istart < str.Length && !char.IsLetterOrDigit(str[Istart])) Istart++;
+			var Iend = str.Length - 1;
+			while (Iend > Istart && !char.IsLetterOrDigit(str[Iend])) Iend--;
+			
+			return str.Substring (Istart, Iend-Istart+1);
+		}
+		
 		static RegistryKey timeZoneKey = null;
-		static bool timeZoneKeySet = false;
 		static RegistryKey TimeZoneKey {
 			get {
-				if (!timeZoneKeySet) {
-					int p = (int) Environment.OSVersion.Platform;
-					/* Only use the registry on non-Unix platforms. */
-					if ((p != 4) && (p != 6) && (p != 128))
-						timeZoneKey = Registry.LocalMachine.OpenSubKey (
-							"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones",
-							false);
-					timeZoneKeySet = true;
-				}
-				return timeZoneKey;
+				if (timeZoneKey != null)
+					return timeZoneKey;
+				if (!IsWindows)
+					return null;
+				
+				return timeZoneKey = Registry.LocalMachine.OpenSubKey (
+					"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones",
+					false);
+			}
+		}
+		
+		static RegistryKey localZoneKey = null;
+		static RegistryKey LocalZoneKey {
+			get {
+				if (localZoneKey != null)
+					return localZoneKey;
+				
+				if (!IsWindows)
+					return null;
+				
+				return localZoneKey = Registry.LocalMachine.OpenSubKey (
+					"SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation", false);
 			}
 		}
 #endif
@@ -305,6 +352,13 @@ namespace System
 			return new TimeZoneInfo (id, baseUtcOffset, displayName, standardDisplayName, daylightDisplayName, adjustmentRules, disableDaylightSavingTime);
 		}
 
+#if NET_4_5
+		public override bool Equals (object obj)
+		{
+			return Equals (obj as TimeZoneInfo);
+		}
+#endif
+
 		public bool Equals (TimeZoneInfo other)
 		{
 			if (other == null)
@@ -329,30 +383,42 @@ namespace System
 #endif
 #if MONODROID
 			return ZoneInfoDB.GetTimeZone (id);
-#elif LIBC
+#else
 			// Local requires special logic that already exists in the Local property (bug #326)
 			if (id == "Local")
 				return Local;
+#if MONOTOUCH
+			using (Stream stream = GetMonoTouchData (id)) {
+				return BuildFromStream (id, stream);
+			}
+#elif LIBC
 			string filepath = Path.Combine (TimeZoneDirectory, id);
 			return FindSystemTimeZoneByFileName (id, filepath);
 #else
 			throw new NotImplementedException ();
 #endif
+#endif
 		}
 
 #if LIBC
-		const int BUFFER_SIZE = 16384; //Big enough for any tz file (on Oct 2008, all tz files are under 10k)
 		private static TimeZoneInfo FindSystemTimeZoneByFileName (string id, string filepath)
 		{
 			if (!File.Exists (filepath))
 				throw new TimeZoneNotFoundException ();
 
-			byte [] buffer = new byte [BUFFER_SIZE];
-			int length;
 			using (FileStream stream = File.OpenRead (filepath)) {
-				length = stream.Read (buffer, 0, BUFFER_SIZE);
+				return BuildFromStream (id, stream);
 			}
-
+		}
+#endif
+#if LIBC || MONOTOUCH
+		const int BUFFER_SIZE = 16384; //Big enough for any tz file (on Oct 2008, all tz files are under 10k)
+		
+		private static TimeZoneInfo BuildFromStream (string id, Stream stream) 
+		{
+			byte [] buffer = new byte [BUFFER_SIZE];
+			int length = stream.Read (buffer, 0, BUFFER_SIZE);
+			
 			if (!ValidTZFile (buffer, length))
 				throw new InvalidTimeZoneException ("TZ file too big for the buffer");
 
@@ -477,7 +543,7 @@ namespace System
 
 		public AdjustmentRule [] GetAdjustmentRules ()
 		{
-			if (disableDaylightSavingTime)
+			if (!supportsDaylightSavingTime)
 				return new AdjustmentRule [0];
 			else
 				return (AdjustmentRule []) adjustmentRules.Clone ();
@@ -541,6 +607,14 @@ namespace System
 			foreach (string id in ZoneInfoDB.GetAvailableIds ()) {
 				systemTimeZones.Add (ZoneInfoDB.GetTimeZone (id));
 			}
+#elif MONOTOUCH
+				if (systemTimeZones.Count == 0) {
+					foreach (string name in GetMonoTouchNames ()) {
+						using (Stream stream = GetMonoTouchData (name)) {
+							systemTimeZones.Add (BuildFromStream (name, stream));
+						}
+					}
+				}
 #elif LIBC
 				string[] continents = new string [] {"Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic", "Brazil", "Canada", "Chile", "Europe", "Indian", "Mexico", "Mideast", "Pacific", "US"};
 				foreach (string continent in continents) {
@@ -727,6 +801,8 @@ namespace System
 				throw new ArgumentException ("id parameter shouldn't be longer than 32 characters");
 #endif
 
+			bool supportsDaylightSavingTime = !disableDaylightSavingTime;
+
 			if (adjustmentRules != null && adjustmentRules.Length != 0) {
 				AdjustmentRule prev = null;
 				foreach (AdjustmentRule current in adjustmentRules) {
@@ -748,6 +824,8 @@ namespace System
 
 					prev = current;
 				}
+			} else {
+				supportsDaylightSavingTime = false;
 			}
 			
 			this.id = id;
@@ -755,7 +833,7 @@ namespace System
 			this.displayName = displayName ?? id;
 			this.standardDisplayName = standardDisplayName ?? id;
 			this.daylightDisplayName = daylightDisplayName;
-			this.disableDaylightSavingTime = disableDaylightSavingTime;
+			this.supportsDaylightSavingTime = supportsDaylightSavingTime;
 			this.adjustmentRules = adjustmentRules;
 		}
 

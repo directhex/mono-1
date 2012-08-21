@@ -51,6 +51,7 @@ namespace System
 	// many times that obj.GetType().FullName == "System.__ComObject" and
 	// Type.GetType("System.__ComObject") may be used.
 
+	[StructLayout (LayoutKind.Sequential)]
 	internal class __ComObject : MarshalByRefObject
 	{
 #pragma warning disable 169	
@@ -98,6 +99,8 @@ namespace System
 			// Guard multiple invocation.
 			if (iunknown != IntPtr.Zero)
 				return;
+
+			System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor (t.TypeHandle);
 			
 			ObjectCreationDelegate ocd = ExtensibleClassFactory.GetObjectCreationCallback (t);
 			if (ocd != null) {

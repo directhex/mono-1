@@ -357,24 +357,19 @@ namespace System.IO {
 			return CreateSubdirectory (path);
 		}
 
-		[MonoNotSupported ("DirectorySecurity isn't implemented")]
 		public DirectorySecurity GetAccessControl ()
 		{
-			throw new UnauthorizedAccessException ();
+			return Directory.GetAccessControl (FullPath);
 		}
 
-		[MonoNotSupported ("DirectorySecurity isn't implemented")]
 		public DirectorySecurity GetAccessControl (AccessControlSections includeSections)
 		{
-			throw new UnauthorizedAccessException ();
+			return Directory.GetAccessControl (FullPath, includeSections);
 		}
 
-		[MonoLimitation ("DirectorySecurity isn't implemented")]
 		public void SetAccessControl (DirectorySecurity directorySecurity)
 		{
-			if (directorySecurity != null)
-				throw new ArgumentNullException ("directorySecurity");
-			throw new UnauthorizedAccessException ();
+			Directory.SetAccessControl (FullPath, directorySecurity);
 		}
 #endif
 
@@ -392,6 +387,14 @@ namespace System.IO {
 
 		public IEnumerable<DirectoryInfo> EnumerateDirectories (string searchPattern, SearchOption searchOption)
 		{
+			if (searchPattern == null)
+				throw new ArgumentNullException ("searchPattern");
+
+			return CreateEnumerateDirectoriesIterator (searchPattern, searchOption);
+		}
+
+		IEnumerable<DirectoryInfo> CreateEnumerateDirectoriesIterator (string searchPattern, SearchOption searchOption)
+		{
 			foreach (string name in Directory.EnumerateDirectories (FullPath, searchPattern, searchOption))
 				yield return new DirectoryInfo (name);
 		}
@@ -407,6 +410,14 @@ namespace System.IO {
 		}
 
 		public IEnumerable<FileInfo> EnumerateFiles (string searchPattern, SearchOption searchOption)
+		{
+			if (searchPattern == null)
+				throw new ArgumentNullException ("searchPattern");
+
+			return CreateEnumerateFilesIterator (searchPattern, searchOption);
+		}
+
+		IEnumerable<FileInfo> CreateEnumerateFilesIterator (string searchPattern, SearchOption searchOption)
 		{
 			foreach (string name in Directory.EnumerateFiles (FullPath, searchPattern, searchOption))
 				yield return new FileInfo (name);

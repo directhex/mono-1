@@ -3489,6 +3489,22 @@ PublicKeyToken=b77a5c561934e089"));
 			Assert.AreEqual ("C", res [2], "#7");
 		}
 
+		public enum OutOfOrderEnum : sbyte
+		{
+			D = -1, C = 2, B = 1, A = 0
+		}
+				
+		[Test]
+		public void GetEnumNamesSortsByUnsignedValue ()
+		{
+			string[] names = typeof (OutOfOrderEnum).GetEnumNames ();
+			Assert.AreEqual (4, names.Length);
+			Assert.AreEqual ("A", names [0]);
+			Assert.AreEqual ("B", names [1]);
+			Assert.AreEqual ("C", names [2]);
+			Assert.AreEqual ("D", names [3]);
+		}
+		
 		[Test]
 		public void GetEnumValues () {
 			try {
@@ -3766,6 +3782,10 @@ PublicKeyToken=b77a5c561934e089"));
 					return asm == null ? Type.GetType (name, false, ignore) : asm.GetType (name, false, ignore);
 				}, false, false);
 			Assert.AreEqual (typeof (MyRealEnum).MakePointerType (), res, "#12");
+
+			// assembly resolve without type resolve
+			res = Type.GetType ("System.String,mscorlib", delegate (AssemblyName aname) { return typeof (int).Assembly; }, null);
+			Assert.AreEqual (typeof (string), res);
 		}
 
 

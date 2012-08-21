@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2009 Jeroen Frijters
+  Copyright (C) 2009-2012 Jeroen Frijters
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -22,6 +22,8 @@
   
 */
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 
 namespace IKVM.Reflection
@@ -100,6 +102,27 @@ namespace IKVM.Reflection
 			return match;
 		}
 
+		public virtual MethodInfo[] __GetMethodImpls()
+		{
+			throw new NotSupportedException();
+		}
+
+		public bool __TryGetImplMap(out ImplMapFlags mappingFlags, out string importName, out string importScope)
+		{
+			Module module = this.Module;
+			foreach (int i in module.ImplMap.Filter(GetCurrentToken()))
+			{
+				mappingFlags = (ImplMapFlags)(ushort)module.ImplMap.records[i].MappingFlags;
+				importName = module.GetString(module.ImplMap.records[i].ImportName);
+				importScope = module.GetString(module.ModuleRef.records[(module.ImplMap.records[i].ImportScope & 0xFFFFFF) - 1]);
+				return true;
+			}
+			mappingFlags = 0;
+			importName = null;
+			importScope = null;
+			return false;
+		}
+
 		Type IGenericContext.GetGenericTypeArgument(int index)
 		{
 			return this.DeclaringType.GetGenericTypeArgument(index);
@@ -146,6 +169,230 @@ namespace IKVM.Reflection
 		internal virtual bool HasThis
 		{
 			get { return !IsStatic; }
+		}
+
+		internal sealed override MemberInfo SetReflectedType(Type type)
+		{
+			return new MethodInfoWithReflectedType(type, this);
+		}
+
+		internal sealed override List<CustomAttributeData> GetPseudoCustomAttributes(Type attributeType)
+		{
+			Module module = this.Module;
+			List<CustomAttributeData> list = new List<CustomAttributeData>();
+			if ((this.Attributes & MethodAttributes.PinvokeImpl) != 0
+				&& (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_DllImportAttribute)))
+			{
+				ImplMapFlags flags;
+				string importName;
+				string importScope;
+				if (__TryGetImplMap(out flags, out importName, out importScope))
+				{
+					list.Add(CustomAttributeData.CreateDllImportPseudoCustomAttribute(module, flags, importName, importScope, GetMethodImplementationFlags()));
+				}
+			}
+			if ((GetMethodImplementationFlags() & MethodImplAttributes.PreserveSig) != 0
+				&& (attributeType == null || attributeType.IsAssignableFrom(module.universe.System_Runtime_InteropServices_PreserveSigAttribute)))
+			{
+				list.Add(CustomAttributeData.CreatePreserveSigPseudoCustomAttribute(module));
+			}
+			return list;
+		}
+	}
+
+	sealed class MethodInfoWithReflectedType : MethodInfo
+	{
+		private readonly Type reflectedType;
+		private readonly MethodInfo method;
+
+		internal MethodInfoWithReflectedType(Type reflectedType, MethodInfo method)
+		{
+			Debug.Assert(reflectedType != method.DeclaringType);
+			this.reflectedType = reflectedType;
+			this.method = method;
+		}
+
+		public override bool Equals(object obj)
+		{
+			MethodInfoWithReflectedType other = obj as MethodInfoWithReflectedType;
+			return other != null
+				&& other.reflectedType == reflectedType
+				&& other.method == method;
+		}
+
+		public override int GetHashCode()
+		{
+			return reflectedType.GetHashCode() ^ method.GetHashCode();
+		}
+
+		internal override MethodSignature MethodSignature
+		{
+			get { return method.MethodSignature; }
+		}
+
+		internal override int ParameterCount
+		{
+			get { return method.ParameterCount; }
+		}
+
+		public override ParameterInfo[] GetParameters()
+		{
+			ParameterInfo[] parameters = method.GetParameters();
+			for (int i = 0; i < parameters.Length; i++)
+			{
+				parameters[i] = new ParameterInfoWrapper(this, parameters[i]);
+			}
+			return parameters;
+		}
+
+		public override MethodAttributes Attributes
+		{
+			get { return method.Attributes; }
+		}
+
+		public override MethodImplAttributes GetMethodImplementationFlags()
+		{
+			return method.GetMethodImplementationFlags();
+		}
+
+		public override MethodBody GetMethodBody()
+		{
+			return method.GetMethodBody();
+		}
+
+		public override CallingConventions CallingConvention
+		{
+			get { return method.CallingConvention; }
+		}
+
+		public override int __MethodRVA
+		{
+			get { return method.__MethodRVA; }
+		}
+
+		public override Type ReturnType
+		{
+			get { return method.ReturnType; }
+		}
+
+		public override ParameterInfo ReturnParameter
+		{
+			get { return new ParameterInfoWrapper(this, method.ReturnParameter); }
+		}
+
+		public override MethodInfo MakeGenericMethod(params Type[] typeArguments)
+		{
+			return SetReflectedType(method.MakeGenericMethod(typeArguments), reflectedType);
+		}
+
+		public override MethodInfo GetGenericMethodDefinition()
+		{
+			return method.GetGenericMethodDefinition();
+		}
+
+		public override string ToString()
+		{
+			return method.ToString();
+		}
+
+		public override MethodInfo[] __GetMethodImpls()
+		{
+			return method.__GetMethodImpls();
+		}
+
+		internal override Type GetGenericMethodArgument(int index)
+		{
+			return method.GetGenericMethodArgument(index);
+		}
+
+		internal override int GetGenericMethodArgumentCount()
+		{
+			return method.GetGenericMethodArgumentCount();
+		}
+
+		internal override MethodInfo GetMethodOnTypeDefinition()
+		{
+			return method.GetMethodOnTypeDefinition();
+		}
+
+		internal override bool HasThis
+		{
+			get { return method.HasThis; }
+		}
+
+		public override Module Module
+		{
+			get { return method.Module; }
+		}
+
+		public override Type DeclaringType
+		{
+			get { return method.DeclaringType; }
+		}
+
+		public override Type ReflectedType
+		{
+			get { return reflectedType; }
+		}
+
+		public override string Name
+		{
+			get { return method.Name; }
+		}
+
+		internal override int ImportTo(IKVM.Reflection.Emit.ModuleBuilder module)
+		{
+			return method.ImportTo(module);
+		}
+
+		public override MethodBase __GetMethodOnTypeDefinition()
+		{
+			return method.__GetMethodOnTypeDefinition();
+		}
+
+		public override bool __IsMissing
+		{
+			get { return method.__IsMissing; }
+		}
+
+		internal override MethodBase BindTypeParameters(Type type)
+		{
+			return method.BindTypeParameters(type);
+		}
+
+		public override bool ContainsGenericParameters
+		{
+			get { return method.ContainsGenericParameters; }
+		}
+
+		public override Type[] GetGenericArguments()
+		{
+			return method.GetGenericArguments();
+		}
+
+		public override bool IsGenericMethod
+		{
+			get { return method.IsGenericMethod; }
+		}
+
+		public override bool IsGenericMethodDefinition
+		{
+			get { return method.IsGenericMethodDefinition; }
+		}
+
+		public override int MetadataToken
+		{
+			get { return method.MetadataToken; }
+		}
+
+		internal override int GetCurrentToken()
+		{
+			return method.GetCurrentToken();
+		}
+
+		internal override bool IsBaked
+		{
+			get { return method.IsBaked; }
 		}
 	}
 }

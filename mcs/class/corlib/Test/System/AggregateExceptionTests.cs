@@ -30,7 +30,6 @@ using System.Threading;
 using System.Collections.Generic;
 
 using NUnit;
-using NUnit.Core;
 using NUnit.Framework;
 
 namespace MonoTests.System
@@ -60,6 +59,7 @@ namespace MonoTests.System
 			Assert.AreEqual (1, ex.InnerExceptions.Count);
 			Assert.AreEqual (inner, ex.InnerExceptions[0]);
 			Assert.AreEqual (message, ex.InnerException.Message);
+			Assert.AreEqual (inner, ex.GetBaseException ());
 		}
 		
 		[TestAttribute]

@@ -95,6 +95,7 @@ namespace IKVM.Reflection.Writer
 			}
 
 			PEWriter writer = new PEWriter(stream);
+			writer.Headers.OptionalHeader.FileAlignment = (uint)moduleBuilder.__FileAlignment;
 			switch (imageFileMachine)
 			{
 				case ImageFileMachine.I386:
@@ -142,11 +143,7 @@ namespace IKVM.Reflection.Writer
 					writer.Headers.OptionalHeader.Subsystem = IMAGE_OPTIONAL_HEADER.IMAGE_SUBSYSTEM_WINDOWS_CUI;
 					break;
 			}
-			writer.Headers.OptionalHeader.DllCharacteristics =
-				IMAGE_OPTIONAL_HEADER.IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE |
-				IMAGE_OPTIONAL_HEADER.IMAGE_DLLCHARACTERISTICS_NO_SEH |
-				IMAGE_OPTIONAL_HEADER.IMAGE_DLLCHARACTERISTICS_NX_COMPAT |
-				IMAGE_OPTIONAL_HEADER.IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE;
+			writer.Headers.OptionalHeader.DllCharacteristics = (ushort)moduleBuilder.__DllCharacteristics;
 
 			CliHeader cliHeader = new CliHeader();
 			cliHeader.Cb = 0x48;
@@ -159,6 +156,10 @@ namespace IKVM.Reflection.Writer
 			if ((portableExecutableKind & PortableExecutableKinds.Required32Bit) != 0)
 			{
 				cliHeader.Flags |= CliHeader.COMIMAGE_FLAGS_32BITREQUIRED;
+			}
+			if ((portableExecutableKind & PortableExecutableKinds.Preferred32Bit) != 0)
+			{
+				cliHeader.Flags |= CliHeader.COMIMAGE_FLAGS_32BITREQUIRED | CliHeader.COMIMAGE_FLAGS_32BITPREFERRED;
 			}
 			if (keyPair != null)
 			{
@@ -384,7 +385,7 @@ namespace IKVM.Reflection.Writer
 				stream.Seek(strongNameSignatureLength, SeekOrigin.Current);
 				HashChunk(stream, cs, buf, (int)(stream.Length - (strongNameSignatureFileOffset + strongNameSignatureLength)));
 			}
-			using (RSA rsa = CryptoHack.CreateRSA(keyPair))
+			using (RSA rsa = keyPair.CreateRSA())
 			{
 				RSAPKCS1SignatureFormatter sign = new RSAPKCS1SignatureFormatter(rsa);
 				byte[] signature = sign.CreateSignature(hash);

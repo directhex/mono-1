@@ -49,7 +49,7 @@ get_unbox_trampoline (MonoMethod *m, gpointer addr, gboolean need_rgctx_tramp)
 	}
 }
 
-#ifdef MONO_ARCH_HAVE_STATIC_RGCTX_TRAMPOLINE
+#ifdef MONO_ARCH_GSHARED_SUPPORTED
 
 typedef struct {
 	MonoMethod *m;
@@ -146,11 +146,11 @@ mono_create_static_rgctx_trampoline (MonoMethod *m, gpointer addr)
 gpointer
 mono_create_static_rgctx_trampoline (MonoMethod *m, gpointer addr)
 {
-	/* 
-	 * This shouldn't happen as all arches which support generic sharing support
-	 * static rgctx trampolines as well.
-	 */
-	g_assert_not_reached ();
+       /* 
+        * This shouldn't happen as all arches which support generic sharing support
+        * static rgctx trampolines as well.
+        */
+       g_assert_not_reached ();
 }
 #endif
 
@@ -419,8 +419,10 @@ common_call_trampoline (mgreg_t *regs, guint8 *code, MonoMethod *m, guint8* tram
 			g_assert (this_argument->vtable->klass->inited);
 			//mono_class_init (this_argument->vtable->klass);
 
-			if (!vtable_slot)
+			if (!vtable_slot) {
+				mono_class_setup_supertypes (this_argument->vtable->klass);
 				klass = this_argument->vtable->klass->supertypes [m->klass->idepth - 1];
+			}
 #else
 			NOT_IMPLEMENTED;
 #endif
@@ -470,18 +472,8 @@ common_call_trampoline (mgreg_t *regs, guint8 *code, MonoMethod *m, guint8* tram
 	}
 
 	if (m->iflags & METHOD_IMPL_ATTRIBUTE_SYNCHRONIZED) {
-		MonoJitInfo *ji;
-
-		if (code)
-			ji = mini_jit_info_table_find (mono_domain_get (), (char*)code, NULL);
-		else
-			ji = NULL;
-
-		/* Avoid recursion */
-		if (!(ji && ji->method->wrapper_type == MONO_WRAPPER_SYNCHRONIZED)) {
-			m = mono_marshal_get_synchronized_wrapper (m);
-			need_rgctx_tramp = FALSE;
-		}
+		m = mono_marshal_get_synchronized_wrapper (m);
+		need_rgctx_tramp = FALSE;
 	}
 
 	/* Calls made through delegates on platforms without delegate trampolines */
@@ -1255,8 +1247,9 @@ mono_create_jump_trampoline (MonoDomain *domain, MonoMethod *method, gboolean ad
 	 * We cannot recover the correct type of a shared generic
 	 * method from its native code address, so we use the
 	 * trampoline instead.
+	 * For synchronized methods, the trampoline adds the wrapper.
 	 */
-	if (code && !ji->has_generic_jit_info)
+	if (code && !ji->has_generic_jit_info && !(method->iflags & METHOD_IMPL_ATTRIBUTE_SYNCHRONIZED))
 		return code;
 
 	mono_domain_lock (domain);
@@ -1345,10 +1338,9 @@ mono_create_jit_trampoline_from_token (MonoImage *image, guint32 token)
 }	
 
 gpointer
-mono_create_delegate_trampoline (MonoClass *klass)
+mono_create_delegate_trampoline (MonoDomain *domain, MonoClass *klass)
 {
 #ifdef MONO_ARCH_HAVE_CREATE_DELEGATE_TRAMPOLINE
-	MonoDomain *domain = mono_domain_get ();
 	gpointer ptr;
 	guint32 code_size = 0;
 	gpointer *tramp_data;
@@ -1369,7 +1361,7 @@ mono_create_delegate_trampoline (MonoClass *klass)
 	tramp_data [1] = mono_arch_get_delegate_invoke_impl (mono_method_signature (invoke), TRUE);
 	tramp_data [2] = mono_arch_get_delegate_invoke_impl (mono_method_signature (invoke), FALSE);
 
-	ptr = mono_create_specific_trampoline (tramp_data, MONO_TRAMPOLINE_DELEGATE, mono_domain_get (), &code_size);
+	ptr = mono_create_specific_trampoline (tramp_data, MONO_TRAMPOLINE_DELEGATE, domain, &code_size);
 	g_assert (code_size);
 
 	/* store trampoline address */
@@ -1438,7 +1430,6 @@ gpointer
 mono_create_monitor_enter_trampoline (void)
 {
 	static gpointer code;
-	MonoTrampInfo *info;
 
 	if (mono_aot_only) {
 		if (!code)
@@ -1450,6 +1441,8 @@ mono_create_monitor_enter_trampoline (void)
 	mono_trampolines_lock ();
 
 	if (!code) {
+		MonoTrampInfo *info;
+
 		code = mono_arch_create_monitor_enter_trampoline (&info, FALSE);
 		if (info) {
 			mono_save_trampoline_xdebug_info (info);
@@ -1472,7 +1465,6 @@ gpointer
 mono_create_monitor_exit_trampoline (void)
 {
 	static gpointer code;
-	MonoTrampInfo *info;
 
 	if (mono_aot_only) {
 		if (!code)
@@ -1484,6 +1476,8 @@ mono_create_monitor_exit_trampoline (void)
 	mono_trampolines_lock ();
 
 	if (!code) {
+		MonoTrampInfo *info;
+
 		code = mono_arch_create_monitor_exit_trampoline (&info, FALSE);
 		if (info) {
 			mono_save_trampoline_xdebug_info (info);

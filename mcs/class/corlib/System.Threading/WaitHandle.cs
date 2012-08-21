@@ -40,6 +40,7 @@ using System.Runtime.ConstrainedExecution;
 namespace System.Threading
 {
 	[ComVisible (true)]
+	[StructLayout (LayoutKind.Sequential)]
 	public abstract class WaitHandle
 #if MOONLIGHT
 		: IDisposable
@@ -237,9 +238,9 @@ namespace System.Threading
 			// FIXME
 		}
 
-		public virtual void Close() {
+		public virtual void Close ()
+		{
 			Dispose(true);
-			GC.SuppressFinalize (this);
 		}
 
 #if NET_4_0 || MOBILE || MOONLIGHT
@@ -280,7 +281,6 @@ namespace System.Threading
 		protected virtual void Dispose (bool explicitDisposing)
 		{
 			if (!disposed){
-				disposed = true;
 
 				//
 				// This is only the case if the handle was never properly initialized
@@ -290,6 +290,10 @@ namespace System.Threading
 					return;
 
 				lock (this){
+					if (disposed)
+						return;
+
+					disposed = true;
 					if (safe_wait_handle != null)
 						safe_wait_handle.Dispose ();
 				}
@@ -442,9 +446,5 @@ namespace System.Threading
 		
 		protected static readonly IntPtr InvalidHandle = (IntPtr) (-1);
 		bool disposed = false;
-
-		~WaitHandle() {
-			Dispose(false);
-		}
 	}
 }

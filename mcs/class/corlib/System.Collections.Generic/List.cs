@@ -473,6 +473,8 @@ namespace System.Collections.Generic {
 
 		public int LastIndexOf (T item)
 		{
+			if (_size == 0)
+				return -1;
 			return Array.LastIndexOf<T> (_items, item, _size - 1, _size);
 		}
 		
@@ -777,13 +779,10 @@ namespace System.Collections.Generic {
 			
 			public void Dispose ()
 			{
-				l = null;
 			}
 
 			void VerifyState ()
 			{
-				if (l == null)
-					throw new ObjectDisposedException (GetType ().FullName);
 				if (ver != l._version)
 					throw new InvalidOperationException (
 						"Collection was modified; enumeration operation may not execute.");

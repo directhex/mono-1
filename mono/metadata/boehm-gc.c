@@ -3,7 +3,7 @@
  *
  * Copyright 2001-2003 Ximian, Inc (http://www.ximian.com)
  * Copyright 2004-2011 Novell, Inc (http://www.novell.com)
- * Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
+ * Copyright 2011-2012 Xamarin, Inc (http://www.xamarin.com)
  */
 
 #include "config.h"
@@ -35,6 +35,10 @@
 #undef FALSE
 #define THREAD_LOCAL_ALLOC 1
 #include "private/pthread_support.h"
+#endif
+
+#if defined(PLATFORM_MACOSX) && defined(HAVE_PTHREAD_GET_STACKADDR_NP)
+void *pthread_get_stackaddr_np(pthread_t);
 #endif
 
 #define GC_NO_DESCRIPTOR ((gpointer)(0 | GC_DS_LENGTH))
@@ -163,9 +167,12 @@ mono_gc_base_init (void)
 				}
 				continue;
 			} else {
+				/* Could be a parameter for sgen */
+				/*
 				fprintf (stderr, "MONO_GC_PARAMS must be a comma-delimited list of one or more of the following:\n");
 				fprintf (stderr, "  max-heap-size=N (where N is an integer, possibly with a k, m or a g suffix)\n");
 				exit (1);
+				*/
 			}
 		}
 		g_strfreev (opts);
@@ -1217,6 +1224,15 @@ mono_gc_set_gc_callbacks (MonoGCCallbacks *callbacks)
 {
 }
 
+void
+mono_gc_set_stack_end (void *stack_end)
+{
+}
+
+void mono_gc_set_skip_thread (gboolean value)
+{
+}
+
 /*
  * These will call the redefined versions in libgc.
  */
@@ -1259,5 +1275,44 @@ BOOL APIENTRY mono_gc_dllmain (HMODULE module_handle, DWORD reason, LPVOID reser
 #endif
 }
 #endif
+
+guint
+mono_gc_get_vtable_bits (MonoClass *class)
+{
+	return 0;
+}
+
+/*
+ * mono_gc_register_altstack:
+ *
+ *   Register the dimensions of the normal stack and altstack with the collector.
+ * Currently, STACK/STACK_SIZE is only used when the thread is suspended while it is on an altstack.
+ */
+void
+mono_gc_register_altstack (gpointer stack, gint32 stack_size, gpointer altstack, gint32 altstack_size)
+{
+#ifdef USE_INCLUDED_LIBGC
+	GC_register_altstack (stack, stack_size, altstack, altstack_size);
+#endif
+}
+
+int
+mono_gc_get_los_limit (void)
+{
+	return G_MAXINT;
+}
+
+gboolean
+mono_gc_user_markers_supported (void)
+{
+	return FALSE;
+}
+
+void *
+mono_gc_make_root_descr_user (MonoGCRootMarkFunc marker)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
 
 #endif /* no Boehm GC */

@@ -46,6 +46,8 @@ TEST_EXTRA_FILES = \
 	Test/config/* \
 	Test/Resources/* \
 	Test/XmlFiles/* \
+	Test/System.ServiceModel.Channels/soap-fault*.xml \
+	Test/System.ServiceModel.Channels/binary-message.raw \
 	Test/System.ServiceModel.Description/dump.xml
 
 EXTRA_DISTFILES = $(RESOURCE_FILES) $(TEST_EXTRA_FILES)

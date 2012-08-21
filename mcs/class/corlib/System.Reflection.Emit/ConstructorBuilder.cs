@@ -44,6 +44,7 @@ namespace System.Reflection.Emit {
 	[ComVisible (true)]
 	[ComDefaultInterface (typeof (_ConstructorBuilder))]
 	[ClassInterface (ClassInterfaceType.None)]
+	[StructLayout (LayoutKind.Sequential)]
 	public sealed class ConstructorBuilder : ConstructorInfo, _ConstructorBuilder {
 	
 #pragma warning disable 169, 414
@@ -112,7 +113,7 @@ namespace System.Reflection.Emit {
 
 		public override ParameterInfo[] GetParameters ()
 		{
-			if (!type.is_created && !IsCompilerContext)
+			if (!type.is_created)
 				throw not_created ();
 
 			return GetParametersInternal ();
@@ -249,23 +250,12 @@ namespace System.Reflection.Emit {
 
 		public override object [] GetCustomAttributes (bool inherit)
 		{
-			/*
-			 * On MS.NET, this always returns not_supported, but we can't do this
-			 * since there would be no way to obtain custom attributes of 
-			 * dynamically created ctors.
-			 */
-			if (type.is_created && IsCompilerContext)
-				return MonoCustomAttrs.GetCustomAttributes (this, inherit);
-			else
-				throw not_supported ();
+			throw not_supported ();
 		}
 
 		public override object [] GetCustomAttributes (Type attributeType, bool inherit)
 		{
-			if (type.is_created && IsCompilerContext)
-				return MonoCustomAttrs.GetCustomAttributes (this, attributeType, inherit);
-			else
-				throw not_supported ();
+			throw not_supported ();
 		}
 
 		public ILGenerator GetILGenerator ()
@@ -377,14 +367,6 @@ namespace System.Reflection.Emit {
 		internal override int get_next_table_index (object obj, int table, bool inc)
 		{
 			return type.get_next_table_index (obj, table, inc);
-		}
-
-		private bool IsCompilerContext {
-			get {
-				ModuleBuilder mb = (ModuleBuilder) TypeBuilder.Module;
-				AssemblyBuilder ab = (AssemblyBuilder) mb.Assembly;
-				return ab.IsCompilerContext;
-			}
 		}
 
 		private void RejectIfCreated ()

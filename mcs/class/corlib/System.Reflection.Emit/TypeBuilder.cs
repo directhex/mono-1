@@ -48,6 +48,7 @@ namespace System.Reflection.Emit
 	[ComVisible (true)]
 	[ComDefaultInterface (typeof (_TypeBuilder))]
 	[ClassInterface (ClassInterfaceType.None)]
+	[StructLayout (LayoutKind.Sequential)]
 	public sealed class TypeBuilder : Type, _TypeBuilder
 	{
 #pragma warning disable 169		
@@ -144,7 +145,7 @@ namespace System.Reflection.Emit
 			}
 			pmodule = mb;
 
-			if (((attr & TypeAttributes.Interface) == 0) && (parent == null) && !IsCompilerContext)
+			if (((attr & TypeAttributes.Interface) == 0) && (parent == null))
 				this.parent = typeof (object);
 
 			// skip .<Module> ?
@@ -195,7 +196,7 @@ namespace System.Reflection.Emit
 				if (is_created)
 					return created.UnderlyingSystemType;
 
-				if (!IsCompilerContext && IsEnum) {
+				if (IsEnum) {
 					if (underlying_type != null)
 						return underlying_type;
 					throw new InvalidOperationException (
@@ -361,7 +362,7 @@ namespace System.Reflection.Emit
 
 		public override bool IsDefined (Type attributeType, bool inherit)
 		{
-			if (!is_created && !IsCompilerContext)
+			if (!is_created)
 				throw new NotSupportedException ();
 			/*
 			 * MS throws NotSupported here, but we can't because some corlib
@@ -664,7 +665,7 @@ namespace System.Reflection.Emit
 				create_internal_class (this);
 			}
 
-			if (IsEnum && !IsCompilerContext) {
+			if (IsEnum) {
 				if (underlying_type == null && (attributes & FieldAttributes.Static) == 0)
 					underlying_type = type;
 			}
@@ -847,10 +848,7 @@ namespace System.Reflection.Emit
 			if (is_created)
 				return created.GetConstructors (bindingAttr);
 
-			if (!IsCompilerContext)
-				throw new NotSupportedException ();
-
-			return GetConstructorsInternal (bindingAttr);
+			throw new NotSupportedException ();
 		}
 
 		internal ConstructorInfo[] GetConstructorsInternal (BindingFlags bindingAttr)
@@ -911,9 +909,7 @@ namespace System.Reflection.Emit
 		{
 			if (is_created)
 				return created.GetEvents (bindingAttr);
-			if (!IsCompilerContext)
-				throw new NotSupportedException ();
-			return new EventInfo [0]; /*FIXME shouldn't we return the events here?*/
+			throw new NotSupportedException ();
 		}
 
 		// This is only used from MonoGenericInst.initialize().
@@ -1252,7 +1248,7 @@ namespace System.Reflection.Emit
 
 		public override Type[] GetNestedTypes (BindingFlags bindingAttr)
 		{
-			if (!is_created && !IsCompilerContext)
+			if (!is_created)
 				throw new NotSupportedException ();
 
 			bool match;
@@ -1642,12 +1638,6 @@ namespace System.Reflection.Emit
 			return created.GetInterfaceMap (interfaceType);
 		}
 
-		internal override bool IsCompilerContext {
-			get {
-				return pmodule.assemblyb.IsCompilerContext;
-			}
-		}
-
 		internal override Type InternalResolve ()
 		{
 			check_created ();
@@ -1929,6 +1919,12 @@ namespace System.Reflection.Emit
 		void _TypeBuilder.Invoke (uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
 		{
 			throw new NotImplementedException ();
+		}
+
+		internal override bool IsUserType {
+			get {
+				return false;
+			}
 		}
 	}
 }

@@ -65,7 +65,8 @@ namespace IKVM.Reflection.Emit
 
 		public int Position
 		{
-			get { return sequence - 1; }
+			// note that this differs from ParameterInfo.Position, which is zero based
+			get { return sequence; }
 		}
 
 		public int Attributes
@@ -110,7 +111,7 @@ namespace IKVM.Reflection.Emit
 			}
 			else if (customAttributeBuilder.Constructor.DeclaringType == u.System_Runtime_InteropServices_MarshalAsAttribute)
 			{
-				MarshalSpec.SetMarshalAsAttribute(moduleBuilder, PseudoToken, customAttributeBuilder);
+				FieldMarshal.SetMarshalAsAttribute(moduleBuilder, PseudoToken, customAttributeBuilder);
 				flags |= (short)ParameterAttributes.HasFieldMarshal;
 			}
 			else

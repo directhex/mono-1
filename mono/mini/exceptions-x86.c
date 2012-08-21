@@ -812,12 +812,8 @@ mono_arch_find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls,
 		 * the caller.
 		 */
 #ifndef ENABLE_LLVM
-		{
-			MonoJitArgumentInfo *arg_info = g_newa (MonoJitArgumentInfo, mono_method_signature (ji->method)->param_count + 1);
-
-			guint32 stack_to_pop = mono_arch_get_argument_info (mono_method_signature (ji->method), mono_method_signature (ji->method)->param_count, arg_info);
-			new_ctx->esp += stack_to_pop;
-		}
+		if (ji->has_arch_eh_info)
+			new_ctx->esp += mono_jit_info_get_arch_eh_info (ji)->stack_size;
 #endif
 
 		return TRUE;
@@ -1182,6 +1178,9 @@ mono_tasklets_arch_restore (void)
 	/* the signature is: restore (MonoContinuation *cont, int state, MonoLMF **lmf_addr) */
 	/* put cont in edx */
 	x86_mov_reg_membase (code, X86_EDX, X86_ESP, 4, 4);
+        /* state in eax, so it's setup as the return value */
+        x86_mov_reg_membase (code, X86_EAX, X86_ESP, 8, 4);
+
 	/* setup the copy of the stack */
 	x86_mov_reg_membase (code, X86_ECX, X86_EDX, G_STRUCT_OFFSET (MonoContinuation, stack_used_size), 4);
 	x86_shift_reg_imm (code, X86_SHR, X86_ECX, 2);
@@ -1202,8 +1201,6 @@ mono_tasklets_arch_restore (void)
 	/*x86_mov_reg_membase (code, X86_ECX, X86_ESP, 12, 4);
 	x86_mov_membase_reg (code, X86_ECX, 0, X86_EDX, 4);*/
 
-	/* state in eax, so it's setup as the return value */
-	x86_mov_reg_membase (code, X86_EAX, X86_ESP, 8, 4);
 	x86_jump_membase (code, X86_EDX, G_STRUCT_OFFSET (MonoContinuation, return_ip));
 	g_assert ((code - start) <= 48);
 	saved = start;

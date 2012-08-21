@@ -57,6 +57,7 @@ tp_epoll_modify (gpointer event_data, int fd, int operation, int events, gboolea
 	struct epoll_event evt;
 	int epoll_op;
 
+	memset (&evt, 0, sizeof (evt));
 	evt.data.fd = fd;
 	if ((events & MONO_POLLIN) != 0)
 		evt.events |= EPOLLIN;
@@ -105,6 +106,8 @@ tp_epoll_wait (gpointer p)
 	events = g_new0 (struct epoll_event, EPOLL_NEVENTS);
 
 	while (1) {
+		mono_gc_set_skip_thread (TRUE);
+
 		do {
 			if (ready == -1) {
 				if (THREAD_WANTS_A_BREAK (thread))
@@ -112,6 +115,8 @@ tp_epoll_wait (gpointer p)
 			}
 			ready = epoll_wait (epollfd, events, EPOLL_NEVENTS, -1);
 		} while (ready == -1 && errno == EINTR);
+
+		mono_gc_set_skip_thread (FALSE);
 
 		if (ready == -1) {
 			int err = errno;

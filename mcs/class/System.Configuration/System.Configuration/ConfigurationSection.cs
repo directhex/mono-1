@@ -186,7 +186,14 @@ namespace System.Configuration
 		[MonoInternalNote ("find the proper location for the decryption stuff")]
 		protected internal virtual void DeserializeSection (XmlReader reader)
 		{
-			DoDeserializeSection (reader);
+			try
+			{
+				DoDeserializeSection (reader);
+			}
+			catch (ConfigurationErrorsException ex)
+			{
+				throw new ConfigurationErrorsException(String.Format("Error deserializing configuration section {0}: {1}", this.SectionInformation.Name, ex.Message));
+			}
 		}
 
 		internal void DeserializeConfigSource (string basePath)
@@ -197,16 +204,16 @@ namespace System.Configuration
 				return;
 
 			if (Path.IsPathRooted (config_source))
-				throw new ConfigurationException ("The configSource attribute must be a relative physical path.");
+				throw new ConfigurationErrorsException ("The configSource attribute must be a relative physical path.");
 			
 			if (HasLocalModifications ())
-				throw new ConfigurationException ("A section using 'configSource' may contain no other attributes or elements.");
+				throw new ConfigurationErrorsException ("A section using 'configSource' may contain no other attributes or elements.");
 			
 			string path = Path.Combine (basePath, config_source);
 			if (!File.Exists (path)) {
 				RawXml = null;
 				SectionInformation.SetRawXml (null);
-				return;
+				throw new ConfigurationErrorsException (string.Format ("Unable to open configSource file '{0}'.", path));
 			}
 			
 			RawXml = File.ReadAllText (path);

@@ -69,6 +69,13 @@ static CRITICAL_SECTION mini_arch_mutex;
 MonoBreakpointInfo
 mono_breakpoint_info [MONO_BREAKPOINT_ARRAY_SIZE];
 
+/* Structure used by the sequence points in AOTed code */
+typedef struct {
+	gpointer ss_trigger_page;
+	gpointer bp_trigger_page;
+	gpointer bp_addrs [MONO_ZERO_LEN_ARRAY];
+} SeqPointInfo;
+
 /*
  * The code generated for sequence points reads from this location, which is
  * made read-only when single stepping is enabled.
@@ -1301,15 +1308,15 @@ mono_arch_init (void)
 	/* amd64_mov_reg_imm () + amd64_mov_reg_membase () */
 	breakpoint_size = 13;
 	breakpoint_fault_size = 3;
-	/* amd64_alu_membase_imm_size (code, X86_CMP, AMD64_R11, 0, 0, 4); */
-	single_step_fault_size = 5;
 #else
 	flags = MONO_MMAP_READ|MONO_MMAP_32BIT;
 	/* amd64_mov_reg_mem () */
 	breakpoint_size = 8;
 	breakpoint_fault_size = 8;
-	single_step_fault_size = 8;
 #endif
+
+	/* amd64_alu_membase_imm_size (code, X86_CMP, AMD64_R11, 0, 0, 4); */
+	single_step_fault_size = 4;
 
 	ss_trigger_page = mono_valloc (NULL, mono_pagesize (), flags);
 	bp_trigger_page = mono_valloc (NULL, mono_pagesize (), flags);
@@ -1338,7 +1345,7 @@ mono_arch_cleanup (void)
  * This function returns the optimizations supported on this cpu.
  */
 guint32
-mono_arch_cpu_optimizazions (guint32 *exclude_mask)
+mono_arch_cpu_optimizations (guint32 *exclude_mask)
 {
 	int eax, ebx, ecx, edx;
 	guint32 opts = 0;
@@ -1777,7 +1784,7 @@ mono_arch_allocate_vars (MonoCompile *cfg)
 	} else {
 		if (cfg->arch.omit_fp)
 			cfg->arch.reg_save_area_offset = offset;
-		/* Reserve space for caller saved registers */
+		/* Reserve space for callee saved registers */
 		for (i = 0; i < AMD64_NREG; ++i)
 			if (AMD64_IS_CALLEE_SAVED_REG (i) && (cfg->used_int_regs & (1 << i))) {
 				offset += sizeof(mgreg_t);
@@ -2030,6 +2037,12 @@ mono_arch_create_vars (MonoCompile *cfg)
 	if (cfg->gen_seq_points) {
 		MonoInst *ins;
 
+		if (cfg->compile_aot) {
+			MonoInst *ins = mono_compile_create_var (cfg, &mono_defaults.int_class->byval_arg, OP_LOCAL);
+			ins->flags |= MONO_INST_VOLATILE;
+			cfg->arch.seq_point_info_var = ins;
+		}
+
 	    ins = mono_compile_create_var (cfg, &mono_defaults.int_class->byval_arg, OP_LOCAL);
 		ins->flags |= MONO_INST_VOLATILE;
 		cfg->arch.ss_trigger_page_var = ins;
@@ -2054,6 +2067,10 @@ mono_arch_create_vars (MonoCompile *cfg)
 		lmf_var->flags |= MONO_INST_LMF;
 		cfg->arch.lmf_var = lmf_var;
 	}
+
+#ifndef MONO_AMD64_NO_PUSHES
+	cfg->arch_eh_jit_info = 1;
+#endif
 }
 
 static void
@@ -2117,13 +2134,10 @@ emit_sig_cookie (MonoCompile *cfg, MonoCallInst *call, CallInfo *cinfo)
 {
 	MonoInst *arg;
 	MonoMethodSignature *tmp_sig;
-	MonoInst *sig_arg;
+	int sig_reg;
 
 	if (call->tail_call)
 		NOT_IMPLEMENTED;
-
-	/* FIXME: Add support for signature tokens to AOT */
-	cfg->disable_aot = TRUE;
 
 	g_assert (cinfo->sig_cookie.storage == ArgOnStack);
 			
@@ -2138,16 +2152,14 @@ emit_sig_cookie (MonoCompile *cfg, MonoCallInst *call, CallInfo *cinfo)
 	tmp_sig->sentinelpos = 0;
 	memcpy (tmp_sig->params, call->signature->params + call->signature->sentinelpos, tmp_sig->param_count * sizeof (MonoType*));
 
-	MONO_INST_NEW (cfg, sig_arg, OP_ICONST);
-	sig_arg->dreg = mono_alloc_ireg (cfg);
-	sig_arg->inst_p0 = tmp_sig;
-	MONO_ADD_INS (cfg->cbb, sig_arg);
+	sig_reg = mono_alloc_ireg (cfg);
+	MONO_EMIT_NEW_SIGNATURECONST (cfg, sig_reg, tmp_sig);
 
 	if (cfg->arch.no_pushes) {
-		MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, AMD64_RSP, cinfo->sig_cookie.offset, sig_arg->dreg);
+		MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, AMD64_RSP, cinfo->sig_cookie.offset, sig_reg);
 	} else {
 		MONO_INST_NEW (cfg, arg, OP_X86_PUSH);
-		arg->sreg1 = sig_arg->dreg;
+		arg->sreg1 = sig_reg;
 		MONO_ADD_INS (cfg->cbb, arg);
 	}
 }
@@ -4272,9 +4284,6 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 		case OP_SEQ_POINT: {
 			int i;
 
-			if (cfg->compile_aot)
-				NOT_IMPLEMENTED;
-
 			/* 
 			 * Read from the single stepping trigger page. This will cause a
 			 * SIGSEGV when single stepping is enabled.
@@ -4282,29 +4291,41 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			 * a breakpoint is hit will step to the next IL offset.
 			 */
 			if (ins->flags & MONO_INST_SINGLE_STEP_LOC) {
-				if (((guint64)ss_trigger_page >> 32) == 0)
-					amd64_mov_reg_mem (code, AMD64_R11, (guint64)ss_trigger_page, 4);
-				else {
-					MonoInst *var = cfg->arch.ss_trigger_page_var;
+				MonoInst *var = cfg->arch.ss_trigger_page_var;
 
-					amd64_mov_reg_membase (code, AMD64_R11, var->inst_basereg, var->inst_offset, 8);
-					amd64_alu_membase_imm_size (code, X86_CMP, AMD64_R11, 0, 0, 4);
-				}
+				amd64_mov_reg_membase (code, AMD64_R11, var->inst_basereg, var->inst_offset, 8);
+				amd64_alu_membase_imm_size (code, X86_CMP, AMD64_R11, 0, 0, 4);
 			}
 
 			/* 
 			 * This is the address which is saved in seq points, 
-			 * get_ip_for_single_step () / get_ip_for_breakpoint () needs to compute this
-			 * from the address of the instruction causing the fault.
 			 */
 			mono_add_seq_point (cfg, bb, ins, code - cfg->native_code);
 
-			/* 
-			 * A placeholder for a possible breakpoint inserted by
-			 * mono_arch_set_breakpoint ().
+			if (cfg->compile_aot) {
+				guint32 offset = code - cfg->native_code;
+				guint32 val;
+				MonoInst *info_var = cfg->arch.seq_point_info_var;
+
+				/* Load info var */
+				amd64_mov_reg_membase (code, AMD64_R11, info_var->inst_basereg, info_var->inst_offset, 8);
+				val = ((offset) * sizeof (guint8*)) + G_STRUCT_OFFSET (SeqPointInfo, bp_addrs);
+				/* Load the info->bp_addrs [offset], which is either a valid address or the address of a trigger page */
+				amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, val, 8);
+				amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, 0, 8);
+			} else {
+				/* 
+				 * A placeholder for a possible breakpoint inserted by
+				 * mono_arch_set_breakpoint ().
+				 */
+				for (i = 0; i < breakpoint_size; ++i)
+					x86_nop (code);
+			}
+			/*
+			 * Add an additional nop so skipping the bp doesn't cause the ip to point
+			 * to another IL offset.
 			 */
-			for (i = 0; i < breakpoint_size; ++i)
-				x86_nop (code);
+			x86_nop (code);
 			break;
 		}
 		case OP_ADDCC:
@@ -6797,6 +6818,9 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 				(cfg->rgctx_var->inst_basereg == AMD64_RBP || cfg->rgctx_var->inst_basereg == AMD64_RSP));
 
 		amd64_mov_membase_reg (code, cfg->rgctx_var->inst_basereg, cfg->rgctx_var->inst_offset, MONO_ARCH_RGCTX_REG, sizeof(gpointer));
+
+		mono_add_var_location (cfg, cfg->rgctx_var, TRUE, MONO_ARCH_RGCTX_REG, 0, 0, code - cfg->native_code);
+		mono_add_var_location (cfg, cfg->rgctx_var, FALSE, cfg->rgctx_var->inst_basereg, cfg->rgctx_var->inst_offset, code - cfg->native_code, 0);
 	}
 
 	/* compute max_length in order to use short forward jumps */
@@ -6918,6 +6942,16 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 					size = 8;
 				*/
 				amd64_mov_membase_reg (code, ins->inst_basereg, ins->inst_offset, ainfo->reg, size);
+
+				/*
+				 * Save the original location of 'this',
+				 * get_generic_info_from_stack_frame () needs this to properly look up
+				 * the argument value during the handling of async exceptions.
+				 */
+				if (ins == cfg->args [0]) {
+					mono_add_var_location (cfg, ins, TRUE, ainfo->reg, 0, 0, code - cfg->native_code);
+					mono_add_var_location (cfg, ins, FALSE, ins->inst_basereg, ins->inst_offset, code - cfg->native_code, 0);
+				}
 				break;
 			}
 			case ArgInFloatSSEReg:
@@ -6964,61 +6998,11 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 			default:
 				g_assert_not_reached ();
 			}
-		}
-	}
 
-	/* Might need to attach the thread to the JIT  or change the domain for the callback */
-	if (method->wrapper_type == MONO_WRAPPER_NATIVE_TO_MANAGED) {
-		guint64 domain = (guint64)cfg->domain;
-
-		args_clobbered = TRUE;
-
-		/* 
-		 * The call might clobber argument registers, but they are already
-		 * saved to the stack/global regs.
-		 */
-		if (appdomain_tls_offset != -1 && lmf_tls_offset != -1) {
-			guint8 *buf, *no_domain_branch;
-
-			code = mono_amd64_emit_tls_get (code, AMD64_RAX, appdomain_tls_offset);
-			if (cfg->compile_aot) {
-				/* AOT code is only used in the root domain */
-				amd64_mov_reg_imm (code, AMD64_ARG_REG1, 0);
-			} else {
-				if ((domain >> 32) == 0)
-					amd64_mov_reg_imm_size (code, AMD64_ARG_REG1, domain, 4);
-				else
-					amd64_mov_reg_imm_size (code, AMD64_ARG_REG1, domain, 8);
+			if (ins == cfg->args [0]) {
+				mono_add_var_location (cfg, ins, TRUE, ainfo->reg, 0, 0, code - cfg->native_code);
+				mono_add_var_location (cfg, ins, TRUE, ins->dreg, 0, code - cfg->native_code, 0);
 			}
-			amd64_alu_reg_reg (code, X86_CMP, AMD64_RAX, AMD64_ARG_REG1);
-			no_domain_branch = code;
-			x86_branch8 (code, X86_CC_NE, 0, 0);
-			code = mono_amd64_emit_tls_get ( code, AMD64_RAX, lmf_addr_tls_offset);
-			amd64_test_reg_reg (code, AMD64_RAX, AMD64_RAX);
-			buf = code;
-			x86_branch8 (code, X86_CC_NE, 0, 0);
-			amd64_patch (no_domain_branch, code);
-			code = emit_call (cfg, code, MONO_PATCH_INFO_INTERNAL_METHOD, 
-					  (gpointer)"mono_jit_thread_attach", TRUE);
-			amd64_patch (buf, code);
-#ifdef HOST_WIN32
-			/* The TLS key actually contains a pointer to the MonoJitTlsData structure */
-			/* FIXME: Add a separate key for LMF to avoid this */
-			amd64_alu_reg_imm (code, X86_ADD, AMD64_RAX, G_STRUCT_OFFSET (MonoJitTlsData, lmf));
-#endif
-		} else {
-			g_assert (!cfg->compile_aot);
-			if (cfg->compile_aot) {
-				/* AOT code is only used in the root domain */
-				amd64_mov_reg_imm (code, AMD64_ARG_REG1, 0);
-			} else {
-				if ((domain >> 32) == 0)
-					amd64_mov_reg_imm_size (code, AMD64_ARG_REG1, domain, 4);
-				else
-					amd64_mov_reg_imm_size (code, AMD64_ARG_REG1, domain, 8);
-			}
-			code = emit_call (cfg, code, MONO_PATCH_INFO_INTERNAL_METHOD,
-					  (gpointer)"mono_jit_thread_attach", TRUE);
 		}
 	}
 
@@ -7101,15 +7085,31 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 		}
 	}
 
-	/* Initialize ss_trigger_page_var */
-	if (cfg->arch.ss_trigger_page_var) {
-		MonoInst *var = cfg->arch.ss_trigger_page_var;
+	if (cfg->gen_seq_points) {
+		MonoInst *info_var = cfg->arch.seq_point_info_var;
 
-		g_assert (!cfg->compile_aot);
-		g_assert (var->opcode == OP_REGOFFSET);
+		/* Initialize seq_point_info_var */
+		if (cfg->compile_aot) {
+			/* Initialize the variable from a GOT slot */
+			/* Same as OP_AOTCONST */
+			mono_add_patch_info (cfg, code - cfg->native_code, MONO_PATCH_INFO_SEQ_POINT_INFO, cfg->method);
+			amd64_mov_reg_membase (code, AMD64_R11, AMD64_RIP, 0, sizeof(gpointer));
+			g_assert (info_var->opcode == OP_REGOFFSET);
+			amd64_mov_membase_reg (code, info_var->inst_basereg, info_var->inst_offset, AMD64_R11, 8);
+		}
 
-		amd64_mov_reg_imm (code, AMD64_R11, (guint64)ss_trigger_page);
-		amd64_mov_membase_reg (code, var->inst_basereg, var->inst_offset, AMD64_R11, 8);
+		/* Initialize ss_trigger_page_var */
+		ins = cfg->arch.ss_trigger_page_var;
+
+		g_assert (ins->opcode == OP_REGOFFSET);
+
+		if (cfg->compile_aot) {
+			amd64_mov_reg_membase (code, AMD64_R11, info_var->inst_basereg, info_var->inst_offset, 8);
+			amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, G_STRUCT_OFFSET (SeqPointInfo, ss_trigger_page), 8);
+		} else {
+			amd64_mov_reg_imm (code, AMD64_R11, (guint64)ss_trigger_page);
+		}
+		amd64_mov_membase_reg (code, ins->inst_basereg, ins->inst_offset, AMD64_R11, 8);
 	}
 
 	cfg->code_len = code - cfg->native_code;
@@ -7995,42 +7995,33 @@ mono_arch_get_delegate_invoke_impl (MonoMethodSignature *sig, gboolean has_targe
 
 	return start;
 }
-
-/*
- * Support for fast access to the thread-local lmf structure using the GS
- * segment register on NPTL + kernel 2.6.x.
- */
-
-static gboolean tls_offset_inited = FALSE;
-
 void
-mono_arch_setup_jit_tls_data (MonoJitTlsData *tls)
+mono_arch_finish_init (void)
 {
-	if (!tls_offset_inited) {
 #ifdef HOST_WIN32
-		/* 
-		 * We need to init this multiple times, since when we are first called, the key might not
-		 * be initialized yet.
-		 */
-		appdomain_tls_offset = mono_domain_get_tls_key ();
-		lmf_tls_offset = mono_get_jit_tls_key ();
-		lmf_addr_tls_offset = mono_get_jit_tls_key ();
+	/* 
+	 * We need to init this multiple times, since when we are first called, the key might not
+	 * be initialized yet.
+	 */
+	appdomain_tls_offset = mono_domain_get_tls_key ();
+	lmf_tls_offset = mono_get_jit_tls_key ();
+	lmf_addr_tls_offset = mono_get_jit_tls_key ();
 
-		/* Only 64 tls entries can be accessed using inline code */
-		if (appdomain_tls_offset >= 64)
-			appdomain_tls_offset = -1;
-		if (lmf_tls_offset >= 64)
-			lmf_tls_offset = -1;
+	/* Only 64 tls entries can be accessed using inline code */
+	if (appdomain_tls_offset >= 64)
+		appdomain_tls_offset = -1;
+	if (lmf_tls_offset >= 64)
+		lmf_tls_offset = -1;
+	if (lmf_addr_tls_offset >= 64)
+		lmf_addr_tls_offset = -1;
 #else
-		tls_offset_inited = TRUE;
 #ifdef MONO_XEN_OPT
-		optimize_for_xen = access ("/proc/xen", F_OK) == 0;
+	optimize_for_xen = access ("/proc/xen", F_OK) == 0;
 #endif
-		appdomain_tls_offset = mono_domain_get_tls_offset ();
-  		lmf_tls_offset = mono_get_lmf_tls_offset ();
-		lmf_addr_tls_offset = mono_get_lmf_addr_tls_offset ();
+	appdomain_tls_offset = mono_domain_get_tls_offset ();
+ 	lmf_tls_offset = mono_get_lmf_tls_offset ();
+	lmf_addr_tls_offset = mono_get_lmf_addr_tls_offset ();
 #endif
-	}		
 }
 
 void
@@ -8500,20 +8491,28 @@ mono_arch_set_breakpoint (MonoJitInfo *ji, guint8 *ip)
 	guint8 *code = ip;
 	guint8 *orig_code = code;
 
-	/* 
-	 * In production, we will use int3 (has to fix the size in the md 
-	 * file). But that could confuse gdb, so during development, we emit a SIGSEGV
-	 * instead.
-	 */
-	g_assert (code [0] == 0x90);
-	if (breakpoint_size == 8) {
-		amd64_mov_reg_mem (code, AMD64_R11, (guint64)bp_trigger_page, 4);
-	} else {
-		amd64_mov_reg_imm_size (code, AMD64_R11, (guint64)bp_trigger_page, 8);
-		amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, 0, 4);
-	}
+	if (ji->from_aot) {
+		guint32 native_offset = ip - (guint8*)ji->code_start;
+		SeqPointInfo *info = mono_arch_get_seq_point_info (mono_domain_get (), ji->code_start);
 
-	g_assert (code - orig_code == breakpoint_size);
+		g_assert (info->bp_addrs [native_offset] == 0);
+		info->bp_addrs [native_offset] = bp_trigger_page;
+	} else {
+		/* 
+		 * In production, we will use int3 (has to fix the size in the md 
+		 * file). But that could confuse gdb, so during development, we emit a SIGSEGV
+		 * instead.
+		 */
+		g_assert (code [0] == 0x90);
+		if (breakpoint_size == 8) {
+			amd64_mov_reg_mem (code, AMD64_R11, (guint64)bp_trigger_page, 4);
+		} else {
+			amd64_mov_reg_imm_size (code, AMD64_R11, (guint64)bp_trigger_page, 8);
+			amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, 0, 4);
+		}
+
+		g_assert (code - orig_code == breakpoint_size);
+	}
 }
 
 /*
@@ -8527,8 +8526,16 @@ mono_arch_clear_breakpoint (MonoJitInfo *ji, guint8 *ip)
 	guint8 *code = ip;
 	int i;
 
-	for (i = 0; i < breakpoint_size; ++i)
-		x86_nop (code);
+	if (ji->from_aot) {
+		guint32 native_offset = ip - (guint8*)ji->code_start;
+		SeqPointInfo *info = mono_arch_get_seq_point_info (mono_domain_get (), ji->code_start);
+
+		g_assert (info->bp_addrs [native_offset] == 0);
+		info->bp_addrs [native_offset] = info;
+	} else {
+		for (i = 0; i < breakpoint_size; ++i)
+			x86_nop (code);
+	}
 }
 
 gboolean
@@ -8548,31 +8555,20 @@ mono_arch_is_breakpoint_event (void *info, void *sigctx)
 }
 
 /*
- * mono_arch_get_ip_for_breakpoint:
- *
- *   Convert the ip in CTX to the address where a breakpoint was placed.
- */
-guint8*
-mono_arch_get_ip_for_breakpoint (MonoJitInfo *ji, MonoContext *ctx)
-{
-	guint8 *ip = MONO_CONTEXT_GET_IP (ctx);
-
-	/* ip points to the instruction causing the fault */
-	ip -= (breakpoint_size - breakpoint_fault_size);
-
-	return ip;
-}
-
-/*
  * mono_arch_skip_breakpoint:
  *
  *   Modify CTX so the ip is placed after the breakpoint instruction, so when
  * we resume, the instruction is not executed again.
  */
 void
-mono_arch_skip_breakpoint (MonoContext *ctx)
+mono_arch_skip_breakpoint (MonoContext *ctx, MonoJitInfo *ji)
 {
-	MONO_CONTEXT_SET_IP (ctx, (guint8*)MONO_CONTEXT_GET_IP (ctx) + breakpoint_fault_size);
+	if (ji->from_aot) {
+		/* amd64_mov_reg_membase (code, AMD64_R11, AMD64_R11, 0, 8) */
+		MONO_CONTEXT_SET_IP (ctx, (guint8*)MONO_CONTEXT_GET_IP (ctx) + 3);
+	} else {
+		MONO_CONTEXT_SET_IP (ctx, (guint8*)MONO_CONTEXT_GET_IP (ctx) + breakpoint_fault_size);
+	}
 }
 	
 /*
@@ -8620,21 +8616,6 @@ mono_arch_is_single_step_event (void *info, void *sigctx)
 }
 
 /*
- * mono_arch_get_ip_for_single_step:
- *
- *   Convert the ip in CTX to the address stored in seq_points.
- */
-guint8*
-mono_arch_get_ip_for_single_step (MonoJitInfo *ji, MonoContext *ctx)
-{
-	guint8 *ip = MONO_CONTEXT_GET_IP (ctx);
-
-	ip += single_step_fault_size;
-
-	return ip;
-}
-
-/*
  * mono_arch_skip_single_step:
  *
  *   Modify CTX so the ip is placed after the single step trigger instruction,
@@ -8655,8 +8636,37 @@ mono_arch_skip_single_step (MonoContext *ctx)
 gpointer
 mono_arch_get_seq_point_info (MonoDomain *domain, guint8 *code)
 {
-	NOT_IMPLEMENTED;
-	return NULL;
+	SeqPointInfo *info;
+	MonoJitInfo *ji;
+	int i;
+
+	// FIXME: Add a free function
+
+	mono_domain_lock (domain);
+	info = g_hash_table_lookup (domain_jit_info (domain)->arch_seq_points,
+								code);
+	mono_domain_unlock (domain);
+
+	if (!info) {
+		ji = mono_jit_info_table_find (domain, (char*)code);
+		g_assert (ji);
+
+		// FIXME: Optimize the size
+		info = g_malloc0 (sizeof (SeqPointInfo) + (ji->code_size * sizeof (gpointer)));
+
+		info->ss_trigger_page = ss_trigger_page;
+		info->bp_trigger_page = bp_trigger_page;
+		/* Initialize to a valid address */
+		for (i = 0; i < ji->code_size; ++i)
+			info->bp_addrs [i] = info;
+
+		mono_domain_lock (domain);
+		g_hash_table_insert (domain_jit_info (domain)->arch_seq_points,
+							 code, info);
+		mono_domain_unlock (domain);
+	}
+
+	return info;
 }
 
 #endif
