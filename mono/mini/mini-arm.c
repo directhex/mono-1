@@ -199,23 +199,6 @@ mono_arch_fregname (int reg)
 	return "unknown";
 }
 
-static guint8*
-mono_arm_emit_tls_get (guint8* code, int dreg, int tls_offset)
-{
-	int imm8, rot_amount;
-	guint32 *p = (guint32*)code;
-	/* mrc 15, 0, REG, cr13, cr0, {3} */
-	*p = 0xee1d0f70 | (dreg << 12);
-	code += 4;
-	imm8 = mono_arm_is_rotated_imm8 (2048, &rot_amount);
-	g_assert (imm8 >= 0);
-	/* sub	REG, REG, #2048 */
-	ARM_SUB_REG_IMM (code, dreg, dreg, imm8, rot_amount);
-	g_assert (arm_is_imm12 (tls_offset * 4));
-	ARM_LDR_IMM (code, dreg, dreg, tls_offset * 4);
-	return code;
-}
-
 #ifndef DISABLE_JIT
 
 static guint8*
