@@ -77,7 +77,7 @@ mono_dl_close_handle (MonoDl *module)
 void*
 mono_dl_lookup_symbol (MonoDl *module, const char *name)
 {
-	return dlsym (module->handle, name);
+	return dlsym (module->handle != NULL ? module->handle : RTLD_DEFAULT, name);
 }
 
 int
