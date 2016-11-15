@@ -23,7 +23,7 @@ if [[ ${CI_TAGS} == *'mobile_static'* ]];
 elif [[ ${CI_TAGS} == *'acceptance-tests'* ]];
     then
     EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --prefix=${WORKSPACE}/tmp/mono-acceptance-tests --with-sgen-default-concurrent=yes";
-elif [[ ${label} != w* ]] && [[ ${label} != 'debian-ppc64el' ]] && [[ ${label} != 'centos-s390x' ]] && [[ ${CI_TAGS} != *'monolite'* ]];
+elif [[ ${label} != w* ]] && [[ ${label} != 'debian-8-ppc64el' ]] && [[ ${label} != 'centos-s390x' ]] && [[ ${CI_TAGS} != *'monolite'* ]];
     then
     # Override the defaults to skip profiles
     # only enable the mobile profiles and mobile_static on the main architectures
@@ -57,6 +57,11 @@ if [[ -n "${ghprbPullId}" ]] && [[ ${label} == w* ]];
     exit 0
     # we don't run the test suite on Windows PRs, we just ensure the build succeeds, so end here
 fi
+
+make_parallelism=-j4
+if [[ ${label} == 'debian-8-ppc64el' ]]; then make_parallelism=-j1; fi
+
+${TESTCMD} --label=make --timeout=300m --fatal make ${make_parallelism} -w V=1
 
 if [[ ${CI_TAGS} == *'acceptance-tests'* ]];
     then
