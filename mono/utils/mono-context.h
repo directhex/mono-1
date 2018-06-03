@@ -865,7 +865,7 @@ typedef struct {
 
 #define MONO_ARCH_HAS_MONO_CONTEXT 1
 
-typedef struct ucontext MonoContext;
+typedef struct ucontext_t MonoContext;
 
 #define MONO_CONTEXT_SET_IP(ctx,ip) 					\
 	do {								\
