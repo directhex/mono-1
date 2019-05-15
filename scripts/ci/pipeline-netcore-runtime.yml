@@ -44,15 +44,14 @@ jobs:
     inputs:
       packageType: 'sdk'
       version: '2.2.203'
-      installationPath: $(Agent.ToolsDirectory)/dotnet
     displayName: Install .NET Core 2.2 latest
     condition: eq(variables['poolname'], 'Hosted VS2017')
 
   - script: |
       %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin ./autogen.sh --host=x86_64-w64-mingw32 --with-core=only"
       CALL msvc\run-msbuild.bat build x86_64 release "/p:PlatformToolset=v140 /p:MONO_TARGET_GC=sgen"
-      "$(Agent.ToolsDirectory)/dotnet/dotnet" restore mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
-      "$(Agent.ToolsDirectory)/dotnet/dotnet" build mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
+      dotnet restore mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
+      dotnet build mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
     displayName: 'Build (MSBuild)'
     env:
       CHERE_INVOKING: yes
