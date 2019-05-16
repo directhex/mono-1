@@ -52,10 +52,10 @@ jobs:
     condition: eq(variables['poolname'], 'Hosted VS2017')
 
   - script: |
-      %CD:~0,2%\msys64\usr\bin\bash -lc " ./autogen.sh --host=x86_64-w64-mingw32 --with-core=only"
+      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64:/c/Program\ Files/Git/bin ./autogen.sh --host=x86_64-w64-mingw32 --with-core=only"
       CALL msvc\run-msbuild.bat build x86_64 release "/p:PlatformToolset=v140 /p:MONO_TARGET_GC=sgen"
-      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64: make -C netcore bcl"
-      %CD:~0,2%\msys64\usr\bin\bash -lc " make -C netcore nupkg"
+      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64:/c/Program\ Files/Git/bin make -C netcore bcl"
+      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64:/c/Program\ Files/Git/bin make -C netcore nupkg"
     displayName: 'Build (MSBuild)'
     env:
       CHERE_INVOKING: yes
