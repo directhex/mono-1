@@ -51,8 +51,7 @@ jobs:
       %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin ./autogen.sh --host=x86_64-w64-mingw32 --with-core=only"
       CALL msvc\run-msbuild.bat build x86_64 release "/p:PlatformToolset=v140 /p:MONO_TARGET_GC=sgen"
       %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin make -C mcs/build/ common/Consts.cs"
-      dotnet restore mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
-      dotnet build /p:TargetsWindows=true -p:BuildArch=x64 -p:OutputPath=bin/x64 -p:RoslynPropsFile="netcore\roslyn\packages\microsoft.net.compilers.toolset\3.1.0-beta3-19213-02\build\Microsoft.Net.Compilers.Toolset.props" mcs\class\System.Private.CoreLib\System.Private.CoreLib.csproj
+      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64 make"
     displayName: 'Build (MSBuild)'
     env:
       CHERE_INVOKING: yes
