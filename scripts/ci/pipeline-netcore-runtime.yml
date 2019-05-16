@@ -14,10 +14,6 @@ jobs:
     displayName: 'Prepare OSX dependencies'
     condition: eq(variables['poolname'], 'Hosted macOS')
 
-  - bash: |
-      which git
-    displayName: 'MONKEY MONKEY MONKEY'
-
   - bash: |  
       sudo apt update
       sudo apt -y install nuget build-essential libtool libtool-bin cmake gettext dotnet-sdk-2.2
