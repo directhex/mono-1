@@ -1,9 +1,14 @@
 thisdir = class/System.Private.CoreLib
 SUBDIRS =
 include ../../build/rules.make
-
+include ../../build/config.make
 include ../../../netcore/roslyn.make
 ROSLYN_PROPS_FILE := ../../../netcore/roslyn/packages/microsoft.net.compilers.toolset/$(ROSLYN_VERSION)/build/Microsoft.Net.Compilers.Toolset.props
+
+ifeq ($(HOST_PLATFORM),win32)
+ROSLYN_PROPS_FILE_ORIG = $(ROSLYN_PROPS_FILE)
+ROSLYN_PROPS_FILE = `cygpath -w $(ROSLYN_PROPS_FILE_ORIG)`
+endif
 
 dirs := $(dir $(wildcard */*))
 files := $(wildcard */*.cs)
