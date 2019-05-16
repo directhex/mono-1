@@ -50,8 +50,7 @@ jobs:
   - script: |
       %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin ./autogen.sh --host=x86_64-w64-mingw32 --with-core=only"
       CALL msvc\run-msbuild.bat build x86_64 release "/p:PlatformToolset=v140 /p:MONO_TARGET_GC=sgen"
-      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin make -C mcs/build/ common/Consts.cs"
-      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64 make -C mcs/class/System.Private.CoreLib"
+      %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64 make -C netcore bcl"
       %CD:~0,2%\msys64\usr\bin\bash -lc "PATH=/usr/bin:/mingw64/bin:/c/hostedtoolcache/windows/dncs/2.2.203/x64 make -C netcore nupkg"
     displayName: 'Build (MSBuild)'
     env:
