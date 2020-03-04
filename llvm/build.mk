@@ -3,6 +3,8 @@ abs_top_srcdir ?= $(abspath $(CURDIR)/..)
 LLVM_BUILD ?= $(abspath $(abs_top_srcdir)/llvm/build)
 LLVM_PREFIX ?= $(abspath $(abs_top_srcdir)/llvm/usr)
 
+NCPUS ?= 8
+
 # LLVM_BRANCH  := $(shell git -C "$(abs_top_srcdir)/external/llvm-project/llvm" rev-parse --abbrev-ref HEAD)
 LLVM_VERSION := $(shell git -C "$(abs_top_srcdir)/external/llvm-project/llvm" rev-parse HEAD)
 
@@ -43,7 +45,7 @@ configure-llvm: $(LLVM_BUILD)/$(if $(NINJA),build.ninja,Makefile)
 
 .PHONY: build-llvm
 build-llvm: configure-llvm
-	DESTDIR="" $(if $(NINJA),$(NINJA),$(MAKE) -j) -C $(LLVM_BUILD)
+	DESTDIR="" $(if $(NINJA),$(NINJA),$(MAKE) -j$(NCPUS)) -C $(LLVM_BUILD)
 
 .PHONY: install-llvm
 install-llvm: build-llvm
